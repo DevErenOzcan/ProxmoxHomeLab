@@ -3,7 +3,39 @@
   hosts: proxmox_nodes
   become: yes
   tasks:
+    - name: Disable Proxmox Enterprise and Ceph Repositories
+      replace:
+        path: "{{ item }}"
+        regexp: '^deb '
+        replace: '#deb '
+      loop:
+        - /etc/apt/sources.list.d/pve-enterprise.list
+        - /etc/apt/sources.list.d/ceph.list
+      ignore_errors: yes
+
+    - name: Add Proxmox No-Subscription Repository
+      apt_repository:
+        repo: "deb http://download.proxmox.com/debian/pve trixie pve-no-subscription"
+        state: present
+        filename: pve-no-subscription
+
     - name: Ensure the system is up-to-date
       apt:
         update_cache: yes
         upgrade: dist
+
+    - name: Create isolated network bridge (vmbr1) for Home Lab
+      blockinfile:
+        path: /etc/network/interfaces
+        block: |
+          auto vmbr1
+          iface vmbr1 inet manual
+                  bridge-ports none
+                  bridge-stp off
+                  bridge-fd 0
+        marker: "# {mark} ANSIBLE MANAGED BLOCK FOR VMBR1"
+      notify: restart_networking
+
+  handlers:
+    - name: restart_networking
+      command: systemctl restart networking

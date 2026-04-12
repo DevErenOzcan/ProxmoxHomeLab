@@ -6,23 +6,18 @@ terraform {
   }
 }
 
-variable "node_name" {
-  type = string
-}
+variable "node_name" { type = string }
+variable "vm_id" { type = number }
+variable "vm_name" { type = string }
+variable "ip_address" { type = string }
+variable "gateway" { type = string, default = "192.168.3.1" }
+variable "network_bridge" { type = string, default = "vmbr1" }
 
-variable "vm_id" {
-  type = number
-}
-
-variable "vm_name" {
-  type = string
-}
-
-resource "proxmox_virtual_environment_vm" "ubuntu" {
+resource "proxmox_virtual_environment_vm" "ubuntu_server" {
   name        = var.vm_name
   node_name   = var.node_name
   vm_id       = var.vm_id
-  description = "Ubuntu Server VM"
+  description = "Ubuntu Server VM (8GB RAM)"
 
   cpu {
     cores = 2
@@ -30,14 +25,14 @@ resource "proxmox_virtual_environment_vm" "ubuntu" {
   }
 
   memory {
-    dedicated = 2048
+    dedicated = 8192 # 8GB RAM olarak güncellendi
   }
 
   disk {
     datastore_id = "local-lvm"
     file_id      = "local:iso/ubuntu-22.04.iso"
     interface    = "scsi0"
-    size         = 32
+    size         = 120
   }
 
   operating_system {
@@ -45,13 +40,15 @@ resource "proxmox_virtual_environment_vm" "ubuntu" {
   }
 
   network_device {
-    bridge = "vmbr0"
+    bridge = var.network_bridge
   }
 
+  # Cloud-init ile otomatik statik IP ataması
   initialization {
     ip_config {
       ipv4 {
-        address = "dhcp"
+        address = var.ip_address
+        gateway = var.gateway
       }
     }
   }
