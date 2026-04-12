@@ -1,0 +1,50 @@
+---
+- name: Configure GPU Passthrough on Proxmox
+  hosts: proxmox_nodes
+  become: yes
+  vars:
+    gpu_pci_ids: "10de:25a0,14c3:7961,1002:1637,1022:15df,1022:15e2,1022:15e3,1002:1638 disable_vga=1" 
+
+  tasks:
+    - name: Enable IOMMU in GRUB
+      lineinfile:
+        path: /etc/default/grub
+        regexp: '^GRUB_CMDLINE_LINUX_DEFAULT='
+        line: 'GRUB_CMDLINE_LINUX_DEFAULT="quiet amd_iommu=on iommu=pt pcie_acs_override=downstream,multifunction"'
+      notify: update-grub
+
+    - name: Ensure VFIO modules are loaded in /etc/modules
+      lineinfile:
+        path: /etc/modules
+        line: "{{ item }}"
+        state: present
+      loop:
+        - vfio
+        - vfio_iommu_type1
+        - vfio_pci
+        - vfio_virqfd
+      notify: update-initramfs
+
+    - name: Blacklist host GPU drivers
+      blockinfile:
+        path: /etc/modprobe.d/pve-blacklist.conf
+        create: yes
+        block: |
+          blacklist nouveau
+          blacklist radeon
+          blacklist amdgpu
+      notify: update-initramfs
+
+    - name: Bind GPU to VFIO-PCI
+      lineinfile:
+        path: /etc/modprobe.d/vfio.conf
+        create: yes
+        line: "options vfio-pci ids={{ gpu_pci_ids }}"
+      notify: update-initramfs
+
+  handlers:
+    - name: update-grub
+      command: update-grub
+
+    - name: update-initramfs
+      command: update-initramfs -u -k all

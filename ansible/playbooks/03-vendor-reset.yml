@@ -1,0 +1,58 @@
+---
+- name: Install AMD Vendor Reset Kernel Patch
+  hosts: proxmox_nodes
+  become: yes
+  tasks:
+    - name: Install prerequisites and kernel headers
+      apt:
+        name:
+          - git
+          - dkms
+          - build-essential
+          - "proxmox-headers-{{ ansible_kernel }}"
+        state: present
+        update_cache: yes
+
+    - name: Clone vendor-reset repository
+      git:
+        repo: https://github.com/gnif/vendor-reset.git
+        dest: /usr/src/vendor-reset
+        version: master
+        force: yes
+
+    - name: Patch atom.c for modern kernel compatibility (strlcpy to strscpy)
+      replace:
+        path: /usr/src/vendor-reset/src/amd/amdgpu/atom.c
+        regexp: 'strlcpy'
+        replace: 'strscpy'
+
+    - name: Patch atom.c for unaligned.h header path
+      replace:
+        path: /usr/src/vendor-reset/src/amd/amdgpu/atom.c
+        regexp: '<asm/unaligned\.h>'
+        replace: '<linux/unaligned.h>'
+
+    - name: Install vendor-reset via DKMS
+      shell: dkms install .
+      args:
+        chdir: /usr/src/vendor-reset
+      register: dkms_result
+      failed_when: 
+        - dkms_result.rc != 0
+        - "'already installed' not in dkms_result.stderr"
+      changed_when: "'already installed' not in dkms_result.stderr"
+
+    - name: Load vendor-reset module on boot
+      copy:
+        dest: /etc/modules-load.d/vendor-reset.conf
+        content: "vendor-reset\n"
+
+    - name: Set device_specific parameter for vendor-reset
+      copy:
+        dest: /etc/modprobe.d/vendor-reset.conf
+        content: "options vendor-reset device_specific=1\n"
+      notify: update-initramfs
+
+  handlers:
+    - name: update-initramfs
+      command: update-initramfs -u -k all

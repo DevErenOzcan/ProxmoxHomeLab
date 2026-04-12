@@ -1,0 +1,9 @@
+---
+- name: Prepare Proxmox Host
+  hosts: proxmox_nodes
+  become: yes
+  tasks:
+    - name: Ensure the system is up-to-date
+      apt:
+        update_cache: yes
+        upgrade: dist
