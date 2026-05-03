@@ -7,7 +7,7 @@ NC='\033[0m'
 
 echo -e "${GREEN}=== Sanal Makine Kurulum Scripti (2. Aşama) ===${NC}\n"
 
-WORK_DIR="./"
+WORK_DIR="./terraform/environments/local"
 
 if [ ! -d "$WORK_DIR" ]; then
     echo -e "${YELLOW}Hata: Terraform dizini bulunamadı. Lütfen önce bootstrap.sh scriptini çalıştırın.${NC}"
