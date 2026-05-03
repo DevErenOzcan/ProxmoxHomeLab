@@ -3,22 +3,6 @@
   hosts: proxmox_nodes
   become: yes
   tasks:
-    - name: Disable Proxmox Enterprise and Ceph Repositories
-      replace:
-        path: "{{ item }}"
-        regexp: '^deb '
-        replace: '#deb '
-      loop:
-        - /etc/apt/sources.list.d/pve-enterprise.list
-        - /etc/apt/sources.list.d/ceph.list
-      ignore_errors: yes
-
-    - name: Add Proxmox No-Subscription Repository
-      apt_repository:
-        repo: "deb http://download.proxmox.com/debian/pve trixie pve-no-subscription"
-        state: present
-        filename: pve-no-subscription
-
     - name: Ensure the system is up-to-date
       apt:
         update_cache: yes

@@ -10,6 +10,23 @@ NC='\033[0m' # No Color
 
 echo -e "${GREEN}=== Proxmox IaC Homelab Otomatik Kurulum (Bootstrap) ===${NC}\n"
 
+# --- 0. PROXMOX REPO DÜZELTMELERİ ---
+echo -e "${YELLOW}[0/4] Proxmox Enterprise repoları devre dışı bırakılıyor...${NC}"
+# pve-enterprise.list dosyasındaki deb satırını yoruma al
+if [ -f /etc/apt/sources.list.d/pve-enterprise.list ]; then
+    sed -i 's/^deb/#deb/g' /etc/apt/sources.list.d/pve-enterprise.list
+fi
+
+# ceph.list dosyasındaki deb satırını yoruma al (Proxmox 8+ için)
+if [ -f /etc/apt/sources.list.d/ceph.list ]; then
+    sed -i 's/^deb/#deb/g' /etc/apt/sources.list.d/ceph.list
+fi
+
+# No-Subscription reposunu ekle (Eğer yoksa)
+if [ ! -f /etc/apt/sources.list.d/pve-no-subscription.list ]; then
+    echo "deb http://download.proxmox.com/debian/pve trixie pve-no-subscription" > /etc/apt/sources.list.d/pve-no-subscription.list
+fi
+
 # --- 1. SİSTEM GÜNCELLEMESİ VE TEMEL PAKETLER ---
 echo -e "${YELLOW}[1/4] Sistem güncelleniyor ve temel paketler kuruluyor...${NC}"
 apt-get update -y
@@ -68,14 +85,7 @@ export TF_VAR_proxmox_password="$PROXMOX_PASSWORD"
 
 # --- BUNDAN SONRASI SENİN ORİJİNAL İŞLEMLERİN ---
 
-# Localhost'a bağlanabilmesi için ufak bir Ansible ayarı gerekebilir, 
-# eğer inventory dosyan 192.168.1.200 (kendi IP'si) gösteriyorsa sorun yok.
-# Ancak bu scripti doğrudan Proxmox üzerinde çalıştırdığımız için,
-# Ansible'ın ssh key sormadan kendine (veya ilgili IP'ye) bağlanabilmesi önemli.
-
 echo -e "\n${GREEN}[Operasyon 1/4] Ansible: Host Hazırlığı (01-host-prep.yml)...${NC}"
-# -c local parametresi eklenebilir eğer inventory yerine localhost üzerinden gidilecekse,
-# ama senin inventory'n varsa onu kullanalım. Şifre sormaması için SSH ayarı yapılması gerekebilir.
 cd ansible
 ansible-playbook -i inventory/hosts.yml playbooks/01-host-prep.yml
 
@@ -90,12 +100,10 @@ echo -e "\n${YELLOW}[Operasyon 4/4] Sistem Yeniden Başlıyor...${NC}"
 echo "GPU Passthrough ayarlarının geçerli olması için Proxmox host yeniden başlatılacak."
 echo "DİKKAT: Sistem yeniden başladıktan sonra Terraform kurulumunu manuel tetiklemeniz gerekebilir,"
 echo "çünkü makine kapanınca bu script duracaktır."
-echo "Otomatik devam etmesi için bir systemd servisi yazılması gerekir."
 
-# Yeniden başlatma komutu (Şimdilik yoruma aldım, otomatik başlatmasın diye)
-# reboot
+# Eğer otomatik devam etmesini istersen buraya systemd servis oluşturma komutları gelir.
+# Şimdilik manuel devam edilecek.
 
-# EĞER YENİDEN BAŞLATMA GEREKMİYORSA VEYA SONRA YAPACAKSAN:
 echo -e "\n${GREEN}=== Terraform: Sanal Makinelerin Kurulumu ===${NC}"
 cd ../terraform/environments/local
 echo "Terraform Initialize ediliyor..."
