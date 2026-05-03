@@ -34,6 +34,7 @@ module "ubuntu_server_vm" {
   ip_address     = "192.168.3.10/24"
   gateway        = "192.168.3.1" # Bu gateway ip'sini pfSense'in LAN bacağına vermelisin
   network_bridge = "vmbr1"
+  iso_file_id    = proxmox_virtual_environment_download_file.ubuntu_server_iso.id
   
   depends_on = [module.network_router]
 }
@@ -47,6 +48,7 @@ module "ubuntu_desktop_vm" {
   ip_address     = "192.168.3.11/24"
   gateway        = "192.168.3.1" # Bu gateway ip'sini pfSense'in LAN bacağına vermelisin
   network_bridge = "vmbr1"
+  iso_file_id    = proxmox_virtual_environment_download_file.ubuntu_desktop_iso.id
   
   depends_on = [module.network_router]
 }
