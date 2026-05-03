@@ -47,7 +47,7 @@ if ! command -v terraform &> /dev/null; then
 fi
 
 # 4. Repo İşlemleri
-REPO_URL="https://github.com/SENIN_KULLANICI_ADIN/SENIN_REPO_ADIN.git" # GÜNCELLEMEYİ UNUTMA
+REPO_URL="https://github.com/DevErenOzcan/ProxmoxHomeLab.git"
 WORK_DIR="/opt/proxmox-homelab"
 
 echo -e "${YELLOW}[4/5] IaC Reposu ($WORK_DIR) alınıyor...${NC}"
