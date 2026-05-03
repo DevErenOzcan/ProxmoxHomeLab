@@ -8,15 +8,22 @@ NC='\033[0m'
 
 echo -e "${GREEN}=== Proxmox Host Hazırlık Scripti (1. Aşama) ===${NC}\n"
 
-# 0. Proxmox Repo Düzeltmeleri
+# --- 0. PROXMOX REPO DÜZELTMELERİ ---
 echo -e "${YELLOW}[0/5] Proxmox Enterprise repoları devre dışı bırakılıyor...${NC}"
-grep -rl "enterprise.proxmox.com" /etc/apt/ | while read -r file; do
-    sed -i '/enterprise.proxmox.com/s/^deb/#deb/g' "$file"
-    sed -i '/enterprise.proxmox.com/s/^URIs/#URIs/g' "$file"
+
+# enterprise.proxmox.com içeren .list ve .sources dosyalarını bul ve uzantılarını değiştirerek iptal et
+for file in /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+    # Eğer dosya varsa ve içinde aradığımız metin geçiyorsa
+    if [ -f "$file" ] && grep -q "enterprise.proxmox.com" "$file"; then
+        mv "$file" "${file}.disabled"
+        echo -e "${GREEN}Devre dışı bırakıldı: $file${NC}"
+    fi
 done
 
+# No-Subscription reposunu ekle (Daha önce eklenmediyse)
 if ! grep -rq "pve-no-subscription" /etc/apt/; then
     echo "deb http://download.proxmox.com/debian/pve trixie pve-no-subscription" > /etc/apt/sources.list.d/pve-no-subscription.list
+    echo -e "${GREEN}No-Subscription reposu eklendi.${NC}"
 fi
 
 # 1. Paket Güncellemeleri
