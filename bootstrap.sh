@@ -29,7 +29,7 @@ fi
 # 1. Paket Güncellemeleri
 echo -e "${YELLOW}[1/5] Sistem güncelleniyor ve temel paketler kuruluyor...${NC}"
 apt-get update -y
-apt-get install -y git curl wget unzip software-properties-common gnupg2
+apt-get install -y git
 
 # 2. Ansible Kurulumu
 echo -e "${YELLOW}[2/5] Ansible kontrol ediliyor...${NC}"
