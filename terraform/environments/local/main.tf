@@ -22,7 +22,7 @@ module "network_router" {
   proxmox_node       = var.node_name
   vm_id              = 99 # Router için kullanmak istediğin ID
   router_template_id = 900 # Proxmox'taki pfSense/OPNsense template ID'n
-  wan_mac_address    = "AA:BB:CC:DD:EE:FF" # Modemde 192.168.1.200'e rezerve edeceğin MAC
+  wan_mac_address    = "02:7A:AA:5D:AD:51"
 }
 
 # Sunucu Makinesi
