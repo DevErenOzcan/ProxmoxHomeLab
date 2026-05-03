@@ -25,7 +25,7 @@ export TF_VAR_proxmox_password="$PROXMOX_PASSWORD"
 export TF_VAR_proxmox_endpoint="https://127.0.0.1:8006/"
 
 echo -e "\n${GREEN}[1/2] Terraform Initialize ediliyor...${NC}"
-terraform init -v
+terraform init
 
 echo -e "\n${GREEN}[2/2] Terraform Apply çalışıyor (Sanal makineler kuruluyor)...${NC}"
 terraform apply -auto-approve
