@@ -19,7 +19,10 @@ cd "$WORK_DIR"
 echo -e "${YELLOW}Terraform Provider için Proxmox root parolasını girin (Gizli yazılır):${NC}"
 read -s -p "Parola: " PROXMOX_PASSWORD
 echo ""
+
+# Terraform Değişkenleri
 export TF_VAR_proxmox_password="$PROXMOX_PASSWORD"
+export TF_VAR_proxmox_endpoint="https://127.0.0.1:8006/"
 
 echo -e "\n${GREEN}[1/2] Terraform Initialize ediliyor...${NC}"
 terraform init -v
