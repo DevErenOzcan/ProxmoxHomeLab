@@ -12,18 +12,17 @@ echo -e "${GREEN}=== Proxmox IaC Homelab Otomatik Kurulum (Bootstrap) ===${NC}\n
 
 # --- 0. PROXMOX REPO DÜZELTMELERİ ---
 echo -e "${YELLOW}[0/4] Proxmox Enterprise repoları devre dışı bırakılıyor...${NC}"
-# pve-enterprise.list dosyasındaki deb satırını yoruma al
-if [ -f /etc/apt/sources.list.d/pve-enterprise.list ]; then
-    sed -i 's/^deb/#deb/g' /etc/apt/sources.list.d/pve-enterprise.list
-fi
 
-# ceph.list dosyasındaki deb satırını yoruma al (Proxmox 8+ için)
-if [ -f /etc/apt/sources.list.d/ceph.list ]; then
-    sed -i 's/^deb/#deb/g' /etc/apt/sources.list.d/ceph.list
-fi
+# /etc/apt/ dizinindeki tüm dosyalarda enterprise.proxmox.com adresini ara ve yoruma al
+grep -rl "enterprise.proxmox.com" /etc/apt/ | while read -r file; do
+    # Klasik .list dosyaları için (deb ile başlayanlar)
+    sed -i '/enterprise.proxmox.com/s/^deb/#deb/g' "$file"
+    # Yeni DEB822 formatlı .sources dosyaları için (URIs ile başlayanlar)
+    sed -i '/enterprise.proxmox.com/s/^URIs/#URIs/g' "$file"
+done
 
-# No-Subscription reposunu ekle (Eğer yoksa)
-if [ ! -f /etc/apt/sources.list.d/pve-no-subscription.list ]; then
+# No-Subscription reposunu ekle (Daha önce eklenmediyse)
+if ! grep -rq "pve-no-subscription" /etc/apt/; then
     echo "deb http://download.proxmox.com/debian/pve trixie pve-no-subscription" > /etc/apt/sources.list.d/pve-no-subscription.list
 fi
 
@@ -100,15 +99,3 @@ echo -e "\n${YELLOW}[Operasyon 4/4] Sistem Yeniden Başlıyor...${NC}"
 echo "GPU Passthrough ayarlarının geçerli olması için Proxmox host yeniden başlatılacak."
 echo "DİKKAT: Sistem yeniden başladıktan sonra Terraform kurulumunu manuel tetiklemeniz gerekebilir,"
 echo "çünkü makine kapanınca bu script duracaktır."
-
-# Eğer otomatik devam etmesini istersen buraya systemd servis oluşturma komutları gelir.
-# Şimdilik manuel devam edilecek.
-
-echo -e "\n${GREEN}=== Terraform: Sanal Makinelerin Kurulumu ===${NC}"
-cd ../terraform/environments/local
-echo "Terraform Initialize ediliyor..."
-terraform init -v
-echo "Terraform Apply çalışıyor..."
-terraform apply -auto-approve
-
-echo -e "\n${GREEN}=== Tüm işlemler başarıyla tamamlandı! ===${NC}"
