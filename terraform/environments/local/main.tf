@@ -20,7 +20,7 @@ resource "proxmox_virtual_environment_download_file" "ubuntu_desktop_iso" {
 module "network_router" {
   source             = "../../modules/router"
   proxmox_node       = var.node_name
-  vm_id              = 99 # Router için kullanmak istediğin ID
+  vm_id              = 102 # Router için kullanmak istediğin ID
   router_template_id = 900 # Proxmox'taki pfSense/OPNsense template ID'n
   wan_mac_address    = "02:7A:AA:5D:AD:51"
 }
