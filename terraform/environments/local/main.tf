@@ -7,9 +7,9 @@ resource "proxmox_virtual_environment_download_file" "router_iso" {
   content_type            = "iso"
   datastore_id            = "local"
   node_name               = var.node_name
-  url                     = "https://mirror.ams1.nl.leaseweb.net/opnsense/releases/24.1/OPNsense-24.1-dvd-amd64.iso.bz2"
-  file_name               = "opnsense-24.1-installer.iso"
-  decompression_algorithm = "bzip2" # OPNsense bz2 formatında indiği için Proxmox otomatik açacak
+  url                     = "https://frafiles.pfsense.org/mirror/downloads/pfSense-CE-2.7.2-RELEASE-amd64.iso.gz"
+  file_name               = "pfsense-2.7.2-installer.iso"
+  decompression_algorithm = "gz" # Proxmox "gz" formatını destekler ve otomatik açar
   upload_timeout          = 3600    # 1 Saat zaman aşımı
 }
 
