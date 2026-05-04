@@ -43,12 +43,12 @@ resource "proxmox_virtual_environment_vm" "windows_11" {
     pre_enrolled_keys = true
   }
 
-  # Windows 11 için ZORUNLU TPM 2.0
   tpm_state {
     datastore_id = "nvme2"
     version      = "v2.0"
   }
 
+  # Terraform bpg/proxmox provider'ı SADECE 1 adet CD-ROM destekler.
   # 1. CD-ROM: Windows 11 Kurulum ISO'su
   cdrom {
     enabled   = true
@@ -56,21 +56,13 @@ resource "proxmox_virtual_environment_vm" "windows_11" {
     interface = "ide2"
   }
 
-  # 2. CD-ROM: VirtIO Sürücüleri (Windows'un Diski ve Ağı görmesi için şart)
-  cdrom {
-    enabled   = true
-    file_id   = var.virtio_iso_file_id
-    interface = "ide0"
-  }
-
   network_device {
     bridge      = var.network_bridge
     model       = "virtio"
-    mac_address = "BC:24:11:B8:0E:F9" # Çakışmayı önlemek için Ubuntu'dan farklı yapıldı
+    mac_address = "BC:24:11:B8:0E:F9"
     firewall    = true
   }
 
-  # USB Passthrough (Ubuntu Desktop ile aynı)
   usb { host = "1-3" }
   usb { host = "1-4" }
   usb { host = "3-2" }
@@ -78,7 +70,6 @@ resource "proxmox_virtual_environment_vm" "windows_11" {
   usb { host = "3-4" }
   usb { host = "1-2" }
 
-  # GPU / PCIe Passthrough (Ubuntu Desktop ile aynı)
   hostpci {
     device = "0000:06:00.0"
     pcie   = true
