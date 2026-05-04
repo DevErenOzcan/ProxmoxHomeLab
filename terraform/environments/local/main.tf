@@ -20,8 +20,8 @@ resource "proxmox_virtual_environment_download_file" "ubuntu_desktop_iso" {
 module "network_router" {
   source             = "../../modules/router"
   proxmox_node       = var.node_name
-  vm_id              = 99 # Router için kullanmak istediğin ID
-  router_template_id = 900 # Proxmox'taki pfSense/OPNsense template ID'n
+  vm_id              = 100
+  router_template_id = 0
   wan_mac_address    = "02:7A:AA:5D:AD:51"
 }
 
@@ -29,7 +29,7 @@ module "network_router" {
 module "ubuntu_server_vm" {
   source         = "../../modules/ubuntu_server"
   node_name      = var.node_name
-  vm_id          = 100
+  vm_id          = 101
   vm_name        = "ubuntu_server"
   ip_address     = "192.168.3.10/24"
   gateway        = "192.168.3.1" # Bu gateway ip'sini pfSense'in LAN bacağına vermelisin
@@ -43,7 +43,7 @@ module "ubuntu_server_vm" {
 module "ubuntu_desktop_vm" {
   source         = "../../modules/ubuntu_desktop"
   node_name      = var.node_name
-  vm_id          = 101
+  vm_id          = 102
   vm_name        = "ubuntu_desktop"
   ip_address     = "192.168.3.11/24"
   gateway        = "192.168.3.1" # Bu gateway ip'sini pfSense'in LAN bacağına vermelisin
