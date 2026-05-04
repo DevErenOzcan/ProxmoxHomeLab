@@ -18,5 +18,5 @@ variable "proxmox_password" {
 variable "node_name" {
   type        = string
   description = "Sanal makinelerin kurulacağı Proxmox Node adı"
-  default     = "pve"
+  default     = "proxmox"
 }
