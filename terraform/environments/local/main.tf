@@ -1,3 +1,15 @@
+# Router (pfSense) ISO'sunu indir
+resource "proxmox_virtual_environment_download_file" "router_iso" {
+  content_type = "iso"
+  datastore_id = "local"
+  node_name    = var.node_name
+  # ÖNEMLİ: pfSense genelde gz olarak dağıtılır. Eğer gz uzantılı bir link kullanıyorsan
+  # decompression_algorithm satırını aktifleştir.
+  url          = "https://atxmedia.net/pfsense.iso" # BURAYI KENDİ İNDİRME LİNKİNLE DEĞİŞTİR
+  file_name    = "pfsense-installer.iso"
+  # decompression_algorithm = "gz"
+}
+
 # Ubuntu Server ISO'sunu indir
 resource "proxmox_virtual_environment_download_file" "ubuntu_server_iso" {
   content_type = "iso"
@@ -21,8 +33,8 @@ module "network_router" {
   source             = "../../modules/router"
   proxmox_node       = var.node_name
   vm_id              = 100
-  router_template_id = 0
   wan_mac_address    = "02:7A:AA:5D:AD:51"
+  iso_file_id        = proxmox_virtual_environment_download_file.router_iso.id
 }
 
 # Sunucu Makinesi
@@ -35,7 +47,6 @@ module "ubuntu_server_vm" {
   gateway        = "192.168.3.1" # Bu gateway ip'sini pfSense'in LAN bacağına vermelisin
   network_bridge = "vmbr1"
   iso_file_id    = proxmox_virtual_environment_download_file.ubuntu_server_iso.id
-  
   depends_on = [module.network_router]
 }
 
@@ -49,6 +60,5 @@ module "ubuntu_desktop_vm" {
   gateway        = "192.168.3.1" # Bu gateway ip'sini pfSense'in LAN bacağına vermelisin
   network_bridge = "vmbr1"
   iso_file_id    = proxmox_virtual_environment_download_file.ubuntu_desktop_iso.id
-  
   depends_on = [module.network_router]
 }

@@ -10,12 +10,7 @@ resource "proxmox_virtual_environment_vm" "virtual_router" {
   name        = var.router_name
   node_name   = var.proxmox_node
   vm_id       = var.vm_id
-  description = "pfSense/OPNsense Firewall Router"
-
-  clone {
-    vm_id = var.router_template_id
-    full  = true
-  }
+  description = "pfSense/OPNsense Firewall Router (Boş Kurulum)"
 
   cpu {
     cores = 2
@@ -24,6 +19,21 @@ resource "proxmox_virtual_environment_vm" "virtual_router" {
 
   memory {
     dedicated = 2048
+  }
+
+  # Boş bir işletim sistemi diski (Kurulum buraya yapılacak)
+  disk {
+    datastore_id = "local-lvm"
+    interface    = "scsi0"
+    size         = 32
+    file_format  = "raw"
+  }
+
+  # Terraform'un indirdiği ISO'yu CD-ROM olarak takıyoruz
+  cdrom {
+    enabled   = true
+    file_id   = var.iso_file_id
+    interface = "ide2"
   }
 
   # 1. AĞ BACAĞI: WAN (Ev Ağı)
