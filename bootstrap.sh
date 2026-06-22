@@ -9,7 +9,11 @@ NC='\033[0m'
 echo -e "${GREEN}=== Proxmox Host Hazırlık Scripti ===${NC}\n"
 
 # --- 0. PROXMOX REPO DÜZELTMELERİ ---
-echo -e "${YELLOW}[1/10] Proxmox Enterprise repoları devre dışı bırakılıyor...${NC}"
+echo -e "${YELLOW}[1/10] Proxmox Enterprise repoları devre dışı bırakılıyor ve repo temizliği yapılıyor...${NC}"
+
+# Çift kayıt (duplicate) uyarılarını önlemek için eski sources.list dosyasının içini boşaltıyoruz
+> /etc/apt/sources.list
+
 for file in /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
     if [ -f "$file" ] && grep -q "enterprise.proxmox.com" "$file"; then
         mv "$file" "${file}.disabled"
@@ -32,7 +36,8 @@ apt-get install -y git dkms build-essential proxmox-headers-$(uname -r)
 echo -e "${YELLOW}[3/10] Terraform kontrol ediliyor...${NC}"
 if ! command -v terraform &> /dev/null; then
     wget -O- https://apt.releases.hashicorp.com/gpg | gpg --dearmor | tee /usr/share/keyrings/hashicorp-archive-keyring.gpg > /dev/null
-    echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/hashicorp.list
+    # HashiCorp reposu doğrudan güncel 'trixie' sürümüyle eklendi
+    echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com trixie main" | tee /etc/apt/sources.list.d/hashicorp.list
     apt-get update -y
     apt-get install -y terraform
     echo -e "${GREEN}Terraform kuruldu.${NC}"
@@ -41,12 +46,12 @@ else
 fi
 
 # --- 3. GRUB IOMMU AKTİVASYONU ---
-echo -e "${YELLOW}[5/10] GRUB üzerinde IOMMU aktifleştiriliyor...${NC}"
+echo -e "${YELLOW}[4/10] GRUB üzerinde IOMMU aktifleştiriliyor...${NC}"
 sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="quiet amd_iommu=on iommu=pt pcie_acs_override=downstream,multifunction"/' /etc/default/grub
 update-grub
 
 # --- 4. VFIO MODÜLLERİ ---
-echo -e "${YELLOW}[6/10] VFIO modülleri ekleniyor...${NC}"
+echo -e "${YELLOW}[5/10] VFIO modülleri ekleniyor...${NC}"
 for mod in vfio vfio_iommu_type1 vfio_pci vfio_virqfd; do
     if ! grep -q "^$mod" /etc/modules; then
         echo "$mod" >> /etc/modules
@@ -54,7 +59,7 @@ for mod in vfio vfio_iommu_type1 vfio_pci vfio_virqfd; do
 done
 
 # --- 5. GPU SÜRÜCÜLERİNİ KARALİSTEYE ALMA ---
-echo -e "${YELLOW}[7/10] Host GPU sürücüleri karalisteye alınıyor...${NC}"
+echo -e "${YELLOW}[6/10] Host GPU sürücüleri karalisteye alınıyor...${NC}"
 cat << 'EOF' > /etc/modprobe.d/pve-blacklist.conf
 blacklist nouveau
 blacklist radeon
@@ -62,11 +67,11 @@ blacklist amdgpu
 EOF
 
 # --- 6. GPU VFIO-PCI BIND ---
-echo -e "${YELLOW}[8/10] GPU cihazları VFIO-PCI'a bağlanıyor...${NC}"
+echo -e "${YELLOW}[7/10] GPU cihazları VFIO-PCI'a bağlanıyor...${NC}"
 echo "options vfio-pci ids=10de:25a0,14c3:7961,1002:1637,1022:15df,1022:15e2,1022:15e3,1002:1638 disable_vga=1" > /etc/modprobe.d/vfio.conf
 
 # --- 7. AMD VENDOR RESET YAMASI ---
-echo -e "${YELLOW}[9/10] AMD Vendor Reset yaması kuruluyor...${NC}"
+echo -e "${YELLOW}[8/10] AMD Vendor Reset yaması kuruluyor...${NC}"
 if ! dkms status | grep -q "vendor-reset"; then
     rm -rf /usr/src/vendor-reset
     git clone https://github.com/gnif/vendor-reset.git /usr/src/vendor-reset
@@ -89,8 +94,14 @@ fi
 echo -e "${YELLOW}Initramfs güncelleniyor (bu işlem biraz sürebilir)...${NC}"
 update-initramfs -u -k all
 
-# --- 8. REBOOT ---
+# --- 8. LAPTOP KAPAK (LID) AYARLARI ---
+echo -e "${YELLOW}[9/10] Laptop kapak (lid) kapatma eylemleri devre dışı bırakılıyor...${NC}"
+sed -i 's/.*HandleLidSwitch=.*/HandleLidSwitch=ignore/' /etc/systemd/logind.conf
+sed -i 's/.*HandleLidSwitchExternalPower=.*/HandleLidSwitchExternalPower=ignore/' /etc/systemd/logind.conf
+sed -i 's/.*HandleLidSwitchDocked=.*/HandleLidSwitchDocked=ignore/' /etc/systemd/logind.conf
+echo -e "${GREEN}Kapak kapatma eylemleri 'ignore' olarak ayarlandı.${NC}"
+
+# --- 9. REBOOT ---
 echo -e "\n${RED}=== DİKKAT: GPU ayarlarının ve kernel modüllerinin uygulanması için sistem şimdi YENİDEN BAŞLATILIYOR! ===${NC}"
-echo "Sistem açıldıktan sonra cd /opt/proxmox-homelab/terraform/environments/local && terraform init && terraform apply ile devam edebilirsiniz."
 sleep 5
 reboot
