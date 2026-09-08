@@ -63,11 +63,19 @@ settings all live in Ansible roles now.
 
 ### 4. Reboot
 
-A reboot is required when GRUB, kernel modules or the initramfs change. The
-playbook never reboots on its own — it drops `/run/reboot-required` and warns:
+`./sync.sh --run` reboots the host by itself when a reboot is pending — that is,
+when something left `/run/reboot-required` behind: GRUB, kernel modules, the
+initramfs, or a new kernel from `dist-upgrade`. A converge that changes nothing
+never reboots.
+
+The host is given `pve_reboot_delay_minutes` (1 by default) of notice via
+`shutdown -r +1`, so there is a window to run `shutdown -c` on the host if you
+change your mind.
+
+To apply without rebooting:
 
 ```bash
-./sync.sh --run -e pve_reboot_after_converge=true
+./sync.sh --run -e pve_reboot_after_converge=false
 ```
 
 ---
@@ -152,7 +160,7 @@ ansible/
     20-network.yml           the vmbr1 bridge
     30-gpu.yml               GPU passthrough + vendor-reset (one play on purpose)
     40-laptop.yml            lid behaviour
-    99-reboot.yml            is a reboot needed / optional reboot
+    99-reboot.yml            reboots when one is pending (on by default)
   roles/
     pve_common/              shared handlers (update-grub, initramfs, reboot marker)
     pve_repos/               disable enterprise repos, add no-subscription
@@ -199,7 +207,7 @@ pve-state --tags laptop     # lid settings
 | `[7/10]` vfio-pci bind | `gpu_passthrough` | |
 | `[8/10]` vendor-reset DKMS | `vendor_reset` | skips the rebuild when already installed |
 | `[9/10]` laptop lid | `laptop_lid` | `logind.conf.d/` drop-in |
-| `[10/10]` unconditional reboot | `99-reboot.yml` | **off** by default, must be asked for |
+| `[10/10]` unconditional reboot | `99-reboot.yml` | only when a reboot is actually pending |
 
 Behaviours fixed along the way:
 
@@ -219,8 +227,9 @@ Behaviours fixed along the way:
 - **`update-initramfs` runs once.** Both `gpu_passthrough` and `vendor_reset`
   notify it; the handler is defined once in `pve_common` and both roles share a
   single play, so the initramfs is rebuilt once instead of twice.
-- **Rebooting is not automatic.** The old script ended with an unconditional
-  `reboot`.
+- **Rebooting is conditional.** The old script ended with an unconditional
+  `reboot` on every run. Now it happens only when `/run/reboot-required` is
+  present, so re-running the playbook on a converged host is a no-op.
 
 ---
 
@@ -245,7 +254,7 @@ base_packages_dist_upgrade: true
 terraform_install: true
 vendor_reset_enabled: true
 laptop_lid_action: "ignore"
-pve_reboot_after_converge: false
+pve_reboot_after_converge: true    # reboot when one is pending
 ```
 
 To disable a role entirely: `gpu_passthrough_enabled: false`,

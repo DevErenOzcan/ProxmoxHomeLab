@@ -1,8 +1,10 @@
 ---
-# The equivalent of bootstrap.sh step [10/10] -- but not automatic.
-# The old script ended with an unconditional "reboot". Rebooting the host on
-# every ansible run is not what we want: this play reboots only when a reboot
-# is actually needed AND it was explicitly asked for.
+# The equivalent of bootstrap.sh step [10/10] -- but conditional.
+# The old script ended with an unconditional "reboot" on every run. This play
+# reboots only when a reboot is actually pending, i.e. something left
+# /run/reboot-required behind (GRUB, kernel modules, initramfs, or a new kernel
+# from dist-upgrade). A no-change converge never reboots.
+# Controlled by pve_reboot_after_converge (default: true).
 - name: Reboot handling
   hosts: proxmox_nodes
   become: true
@@ -21,18 +23,26 @@
              if reboot_marker.stat.exists
              else 'No reboot required.' }}
 
-    - name: reboot | Reboot the host
+    - name: reboot | Schedule the reboot
       ansible.builtin.command: "shutdown -r +{{ pve_reboot_delay_minutes | default(1) }} 'proxmox-homelab: rebooting after ansible converge'"
       changed_when: true
+      register: reboot_scheduled
       when:
         - reboot_marker.stat.exists
-        - pve_reboot_after_converge | default(false) | bool
+        - pve_reboot_after_converge | default(true) | bool
+
+    - name: reboot | Announce the reboot
+      ansible.builtin.debug:
+        msg: >-
+          Host reboots in {{ pve_reboot_delay_minutes | default(1) }} minute(s).
+          Cancel with 'shutdown -c' on the host if you need to.
+      when: reboot_scheduled is changed
 
     - name: reboot | Remind how to reboot
       ansible.builtin.debug:
         msg: >-
-          To reboot:  ansible-playbook site.yml -e pve_reboot_after_converge=true
-          or simply:  reboot
+          Reboot was skipped (pve_reboot_after_converge is false).
+          Reboot later with:  pve-state   or   reboot
       when:
         - reboot_marker.stat.exists
-        - not (pve_reboot_after_converge | default(false) | bool)
+        - not (pve_reboot_after_converge | default(true) | bool)
