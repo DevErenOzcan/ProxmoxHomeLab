@@ -14,6 +14,7 @@
 #   ./sync.sh --run --tags gpu   Extra arguments are passed to ansible-playbook
 #   ./sync.sh --watch --check    Push + dry run automatically on every change
 #   ./sync.sh --bootstrap        Push + run bootstrap.sh on the host (first-time setup)
+#   ./sync.sh --bootstrap --apply   ...and apply site.yml right after
 #   ./sync.sh --shell            Open a shell on the host
 #   ./sync.sh --install-key      Set up key-based SSH so no password is needed
 #
@@ -46,7 +47,7 @@ say()  { printf '%s%s%s\n' "$GREEN"  "$*" "$NC"; }
 warn() { printf '%s%s%s\n' "$YELLOW" "$*" "$NC"; }
 info() { printf '%s%s%s\n' "$BLUE"   "$*" "$NC"; }
 die()  { printf '%sERROR: %s%s\n' "$RED" "$*" "$NC" >&2; exit 1; }
-usage() { sed -n '3,26p' "${BASH_SOURCE[0]}" | sed 's/^#\{1,\} \{0,1\}//'; }
+usage() { sed -n '3,27p' "${BASH_SOURCE[0]}" | sed 's/^#\{1,\} \{0,1\}//'; }
 
 # --------------------------------------------------------------------------
 # Arguments
@@ -151,8 +152,8 @@ push() {
     say "-> $PVE_USER@$PVE_HOST:$STATE_DIR updated ($(date +%H:%M:%S))"
 }
 
-run_playbook() {
-    local extra="$1"
+# Unrecognised arguments are forwarded verbatim, safely quoted.
+passthru_args() {
     local args=""
     local a
     if [ ${#PASSTHRU[@]} -gt 0 ]; then
@@ -160,7 +161,12 @@ run_playbook() {
             args="$args $(printf '%q' "$a")"
         done
     fi
-    pssh "cd $STATE_DIR/ansible && ansible-playbook site.yml $extra$args"
+    printf '%s' "$args"
+}
+
+run_playbook() {
+    local extra="$1"
+    pssh "cd $STATE_DIR/ansible && ansible-playbook site.yml $extra$(passthru_args)"
 }
 
 tree_signature() {
@@ -201,7 +207,7 @@ do_action() {
         push)      : ;;
         check)     info "Dry run (--check --diff)..."; run_playbook "--check --diff" ;;
         run)       warn "Applying site.yml..."; run_playbook "" ;;
-        bootstrap) warn "Running bootstrap.sh..."; pssh "bash $STATE_DIR/bootstrap.sh" ;;
+        bootstrap) warn "Running bootstrap.sh..."; pssh "bash $STATE_DIR/bootstrap.sh$(passthru_args)" ;;
     esac
 }
 
