@@ -1,0 +1,6 @@
+---
+# Overrides that apply to pve1 only. Put host-specific values here instead of
+# editing group_vars/proxmox_nodes.yml.
+#
+# Example:
+# gpu_passthrough_enabled: false

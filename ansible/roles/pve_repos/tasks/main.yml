@@ -1,0 +1,93 @@
+---
+# The equivalent of bootstrap.sh step [1/10].
+# PVE 9 / Debian 13 ship their repositories in deb822 (.sources) format, but
+# the old .list format still works, so both are handled here.
+
+- name: pve_repos | Find enterprise repository files
+  ansible.builtin.find:
+    paths: /etc/apt/sources.list.d
+    patterns: ["*.sources", "*.list"]
+    # NOTE: the find module anchors "contains" at the START of the line
+    # (it is not a plain re.search), so the leading/trailing .* are required.
+    contains: '.*enterprise[.]proxmox[.]com.*'
+  register: pve_repos_enterprise_files
+  when: pve_repos_disable_enterprise
+
+- name: pve_repos | Disable deb822 (.sources) enterprise repositories
+  ansible.builtin.lineinfile:
+    path: "{{ item.path }}"
+    regexp: '^\s*Enabled\s*:'
+    line: "Enabled: false"
+    insertafter: EOF
+  loop: "{{ pve_repos_enterprise_files.files | default([]) | selectattr('path', 'search', '[.]sources$') | list }}"
+  loop_control:
+    label: "{{ item.path }}"
+  register: pve_repos_disabled_deb822
+
+- name: pve_repos | Comment out enterprise lines in legacy (.list) files
+  ansible.builtin.replace:
+    path: "{{ item.path }}"
+    regexp: '^(?!#)(\s*deb.*enterprise[.]proxmox[.]com.*)$'
+    replace: '# \1'
+  loop: "{{ pve_repos_enterprise_files.files | default([]) | selectattr('path', 'search', '[.]list$') | list }}"
+  loop_control:
+    label: "{{ item.path }}"
+  register: pve_repos_disabled_list
+
+- name: pve_repos | Add the pve-no-subscription repository
+  ansible.builtin.deb822_repository:
+    name: pve-no-subscription
+    types: [deb]
+    uris: "http://download.proxmox.com/debian/pve"
+    suites: ["{{ pve_repos_suite }}"]
+    components: [pve-no-subscription]
+    signed_by: "{{ pve_repos_keyring }}"
+    enabled: true
+    state: present
+  register: pve_repos_no_sub
+  when: pve_repos_enable_no_subscription
+
+- name: pve_repos | Add the Ceph no-subscription repository
+  ansible.builtin.deb822_repository:
+    name: ceph-no-subscription
+    types: [deb]
+    uris: "http://download.proxmox.com/debian/{{ pve_repos_ceph_release }}"
+    suites: ["{{ pve_repos_suite }}"]
+    components: [no-subscription]
+    signed_by: "{{ pve_repos_keyring }}"
+    enabled: true
+    state: present
+  register: pve_repos_ceph_no_sub
+  when: pve_repos_enable_ceph_no_subscription
+
+# If /etc/apt/sources.list and the .sources files define the same repository,
+# apt warns about duplicates. Empty out the legacy file.
+- name: pve_repos | Check for a legacy /etc/apt/sources.list
+  ansible.builtin.stat:
+    path: /etc/apt/sources.list
+  register: pve_repos_legacy_list
+  when: pve_repos_clear_legacy_sources_list
+
+- name: pve_repos | Remove active entries from the legacy /etc/apt/sources.list
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list
+    content: |
+      # Emptied by proxmox-homelab (ansible).
+      # Repositories are managed under /etc/apt/sources.list.d/*.sources
+    owner: root
+    group: root
+    mode: "0644"
+  register: pve_repos_legacy_cleared
+  when:
+    - pve_repos_clear_legacy_sources_list
+    - pve_repos_legacy_list.stat.exists | default(false)
+
+- name: pve_repos | Refresh the APT cache if any repository changed
+  ansible.builtin.apt:
+    update_cache: true
+  when: >-
+    (pve_repos_disabled_deb822 is changed) or
+    (pve_repos_disabled_list is changed) or
+    (pve_repos_no_sub is changed) or
+    (pve_repos_ceph_no_sub is changed) or
+    (pve_repos_legacy_cleared is changed)

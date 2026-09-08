@@ -1,0 +1,58 @@
+---
+# The equivalent of bootstrap.sh steps [4/10] - [7/10].
+
+- name: gpu_passthrough | Set the IOMMU kernel parameters in GRUB
+  ansible.builtin.lineinfile:
+    path: /etc/default/grub
+    regexp: '^GRUB_CMDLINE_LINUX_DEFAULT='
+    line: 'GRUB_CMDLINE_LINUX_DEFAULT="{{ gpu_passthrough_grub_cmdline }}"'
+    backup: true
+  notify: pve_update_grub
+
+- name: gpu_passthrough | Load the VFIO modules at boot
+  ansible.builtin.template:
+    src: vfio-modules.conf.j2
+    dest: "{{ gpu_passthrough_modules_load_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: pve_update_initramfs
+
+- name: gpu_passthrough | Blacklist the host GPU drivers
+  ansible.builtin.template:
+    src: gpu-blacklist.conf.j2
+    dest: "{{ gpu_passthrough_blacklist_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: pve_update_initramfs
+
+- name: gpu_passthrough | Verify that PCI IDs were provided
+  ansible.builtin.assert:
+    that:
+      - gpu_passthrough_pci_ids | length > 0
+    fail_msg: >-
+      gpu_passthrough_pci_ids is empty. Put the [vendor:device] pairs from
+      "lspci -nn" into group_vars/proxmox_nodes.yml, or set
+      gpu_passthrough_enabled: false.
+
+- name: gpu_passthrough | Bind the GPU devices to vfio-pci
+  ansible.builtin.template:
+    src: vfio.conf.j2
+    dest: "{{ gpu_passthrough_vfio_conf_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: pve_update_initramfs
+
+# bootstrap.sh overwrote PVE's pve-blacklist.conf. If that script ever ran, the
+# "blacklist nvidiafb" line is gone; put it back.
+- name: gpu_passthrough | Restore PVE's own nvidiafb blacklist entry
+  ansible.builtin.lineinfile:
+    path: /etc/modprobe.d/pve-blacklist.conf
+    line: "blacklist nvidiafb"
+    create: true
+    owner: root
+    group: root
+    mode: "0644"
+  notify: pve_update_initramfs

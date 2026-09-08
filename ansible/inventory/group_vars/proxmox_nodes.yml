@@ -1,0 +1,119 @@
+---
+# =============================================================================
+# The single settings file for the Proxmox host.
+# Every constant that used to live in bootstrap.sh was moved here. If you want
+# to change something, look here first -- the roles read these variables.
+# For values that should apply to pve1 only, use host_vars/pve1.yml.
+#
+# WHY THIS LIVES UNDER inventory/: the playbooks sit in the playbooks/
+# subdirectory, and ansible looks for playbook-adjacent group_vars in
+# playbooks/group_vars/. Inventory-adjacent group_vars are loaded no matter
+# which playbook runs.
+# =============================================================================
+
+# --- Managed-file header ----------------------------------------------------
+# This is what {{ ansible_managed }} renders to in templates. (The
+# ansible_managed setting in ansible.cfg is deprecated in ansible-core 2.19 and
+# goes away in 2.23, so it is defined as an ordinary variable instead.)
+ansible_managed: "Managed by proxmox-homelab (ansible) - do not edit by hand"
+
+# --- APT repositories (bootstrap [1/10]) ------------------------------------
+# The enterprise repositories require a subscription and make 'apt update'
+# return 401, so they get disabled.
+pve_repos_disable_enterprise: true
+pve_repos_enable_no_subscription: true
+# A single-node homelab does not need Ceph, and the enterprise Ceph repository
+# is disabled anyway, so apt stays clean. Set this to true if you need the
+# Ceph packages.
+pve_repos_enable_ceph_no_subscription: false
+pve_repos_ceph_release: "ceph-squid"
+# PVE 9 = Debian 13 (trixie); taken automatically from ansible_distribution_release.
+pve_repos_suite: "{{ ansible_distribution_release }}"
+pve_repos_clear_legacy_sources_list: true
+
+# --- Base packages (bootstrap [2/10]) ---------------------------------------
+base_packages_dist_upgrade: true
+base_packages_list:
+  - git
+  - dkms
+  - build-essential
+  - rsync
+  - curl
+  - gpg
+  - ca-certificates
+# Kernel headers (required by DKMS).
+# WARNING: do NOT use proxmox-default-headers -- that meta package points at
+# PVE's default kernel (6.14) while this host runs 7.0.2-6-pve.
+# The role derives the names below and installs whichever ones actually exist
+# in the repositories:
+#   proxmox-headers-7.0.2-6-pve  (exact version, what DKMS needs)
+#   proxmox-headers-7.0          (ABI meta package, follows kernel upgrades)
+base_packages_kernel_headers: []
+base_packages_exact_kernel_headers: true
+base_packages_abi_kernel_headers: true
+
+# --- Terraform (bootstrap [3/10]) -------------------------------------------
+terraform_install: true
+terraform_apt_suite: "{{ ansible_distribution_release }}"
+
+# --- Network bridge ---------------------------------------------------------
+# terraform/environments/local/main.tf attaches its VMs to vmbr1.
+network_bridge_enabled: true
+network_bridge_reload: true
+network_bridges:
+  - name: vmbr1
+    comment: "Isolated Home Lab bridge (no physical port, VM-to-VM only)"
+    ports: "none"
+    stp: "off"     # NOTE: the quotes matter -- YAML turns off/on/no/yes into booleans
+    fd: 0
+
+# --- GPU passthrough (bootstrap [4/10] - [7/10]) ----------------------------
+gpu_passthrough_enabled: true
+# For the AMD Ryzen 7 5800H. On Intel: "quiet intel_iommu=on iommu=pt"
+gpu_passthrough_grub_cmdline: "quiet amd_iommu=on iommu=pt pcie_acs_override=downstream,multifunction"
+# vfio_virqfd was folded into vfio in kernel 6.2. On this host (7.0.2-6-pve)
+# no such module exists, and leaving it in the list produces a boot-time error.
+gpu_passthrough_vfio_modules:
+  - vfio
+  - vfio_iommu_type1
+  - vfio_pci
+gpu_passthrough_blacklist_drivers:
+  - nouveau
+  - radeon
+  - amdgpu
+# The [vendor:device] pairs from "lspci -nn". On this host:
+#   10de:25a0  NVIDIA GA107M / RTX 3050 Ti Mobile   (01:00.0)
+#   1002:1638  AMD Cezanne iGPU                     (06:00.0)
+#   1002:1637  AMD Renoir HD Audio                  (06:00.1)
+#   1022:15e2  AMD Audio Coprocessor                (06:00.5)
+#   1022:15e3  AMD Family 17h/19h HD Audio          (06:00.6)
+#   1022:15df  AMD PSP/CCP crypto co-processor
+#   14c3:7961  MediaTek MT7921 wireless
+gpu_passthrough_pci_ids:
+  - "10de:25a0"
+  - "14c3:7961"
+  - "1002:1637"
+  - "1022:15df"
+  - "1022:15e2"
+  - "1022:15e3"
+  - "1002:1638"
+gpu_passthrough_disable_vga: true
+
+# --- AMD vendor-reset / DKMS (bootstrap [8/10]) -----------------------------
+vendor_reset_enabled: true
+vendor_reset_repo: "https://github.com/gnif/vendor-reset.git"
+vendor_reset_version: "master"
+vendor_reset_src_dir: "/usr/src/vendor-reset"
+
+# --- Laptop lid behaviour (bootstrap [9/10]) --------------------------------
+laptop_lid_enabled: true
+laptop_lid_action: "ignore"
+laptop_lid_restart_logind: true
+
+# --- Reboot (bootstrap [10/10]) ---------------------------------------------
+# bootstrap.sh ended with an unconditional reboot. Here the default is OFF:
+# the playbook only drops /run/reboot-required and warns.
+# To actually reboot:
+#   ansible-playbook site.yml -e pve_reboot_after_converge=true
+pve_reboot_after_converge: false
+pve_reboot_delay_minutes: 1

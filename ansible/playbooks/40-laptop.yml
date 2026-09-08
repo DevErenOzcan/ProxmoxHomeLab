@@ -1,0 +1,12 @@
+---
+# Settings specific to running Proxmox on a laptop.
+- name: Laptop specific settings
+  hosts: proxmox_nodes
+  become: true
+  gather_facts: true
+  roles:
+    - role: pve_common
+      tags: [always]
+    - role: laptop_lid
+      tags: [laptop, lid]
+      when: laptop_lid_enabled | default(true)

@@ -1,0 +1,18 @@
+---
+# IOMMU + VFIO + vendor-reset. These two roles share one play on purpose:
+# both notify the initramfs handler, and within a single play that handler
+# runs once instead of twice.
+# A REBOOT is required after this play.
+- name: GPU passthrough and AMD vendor-reset
+  hosts: proxmox_nodes
+  become: true
+  gather_facts: true
+  roles:
+    - role: pve_common
+      tags: [always]
+    - role: gpu_passthrough
+      tags: [gpu, passthrough]
+      when: gpu_passthrough_enabled | default(true)
+    - role: vendor_reset
+      tags: [gpu, vendor_reset]
+      when: vendor_reset_enabled | default(true)

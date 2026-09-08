@@ -1,0 +1,7 @@
+---
+terraform_install: true
+terraform_apt_suite: "{{ ansible_distribution_release }}"
+terraform_gpg_url: "https://apt.releases.hashicorp.com/gpg"
+terraform_keyring: "/etc/apt/keyrings/hashicorp.asc"
+terraform_apt_uri: "https://apt.releases.hashicorp.com"
+terraform_package: terraform

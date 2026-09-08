@@ -1,0 +1,12 @@
+---
+# The isolated bridge the Terraform VMs attach to (vmbr1).
+- name: Network bridges
+  hosts: proxmox_nodes
+  become: true
+  gather_facts: true
+  roles:
+    - role: pve_common
+      tags: [always]
+    - role: network_bridge
+      tags: [network]
+      when: network_bridge_enabled | default(true)

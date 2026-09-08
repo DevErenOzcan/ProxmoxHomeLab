@@ -1,0 +1,68 @@
+---
+# The equivalent of bootstrap.sh step [2/10].
+
+- name: base_packages | Refresh the APT cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 0
+  changed_when: false
+
+- name: base_packages | Upgrade the system (dist-upgrade)
+  ansible.builtin.apt:
+    upgrade: dist
+  when: base_packages_dist_upgrade
+
+# 7.0.2-6-pve -> 7.0
+- name: base_packages | Build the list of candidate header packages
+  ansible.builtin.set_fact:
+    base_packages_header_candidates: >-
+      {{ base_packages_kernel_headers
+         + ([ 'proxmox-headers-' ~ ansible_kernel ]
+            if base_packages_exact_kernel_headers else [])
+         + ([ 'proxmox-headers-' ~ (ansible_kernel.split('-')[0].split('.')[0:2] | join('.')) ]
+            if base_packages_abi_kernel_headers else []) }}
+
+- name: base_packages | Check which header packages the repositories offer
+  ansible.builtin.command: "apt-cache policy {{ item }}"
+  loop: "{{ base_packages_header_candidates }}"
+  register: base_packages_hdr_probe
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: base_packages | Keep only the installable header packages
+  ansible.builtin.set_fact:
+    base_packages_headers_final: >-
+      {{ base_packages_hdr_probe.results
+         | selectattr('stdout', 'search', 'Candidate:')
+         | rejectattr('stdout', 'search', 'Candidate: [(]none[)]')
+         | map(attribute='item') | list }}
+
+# In --check mode pve_repos never actually writes the repository file, so the
+# PVE packages are not in the APT cache yet. That is how a dry run works, not
+# an error.
+- name: base_packages | Dry-run note
+  ansible.builtin.debug:
+    msg: >-
+      Dry run: none of {{ base_packages_header_candidates | join(', ') }} are in
+      the APT cache, because --check mode did not write the pve-no-subscription
+      repository to disk. They will be found on a real run.
+  when:
+    - base_packages_headers_final | length == 0
+    - ansible_check_mode
+
+- name: base_packages | No kernel header package found
+  ansible.builtin.fail:
+    msg: >-
+      None of these packages exist in the configured repositories:
+      {{ base_packages_header_candidates | join(', ') }}.
+      Is the pve-no-subscription repository enabled (pve_repos role) and has
+      'apt update' run?
+  when:
+    - base_packages_headers_final | length == 0
+    - not ansible_check_mode
+
+- name: base_packages | Install base packages and kernel headers
+  ansible.builtin.apt:
+    name: "{{ base_packages_list + base_packages_headers_final }}"
+    state: present

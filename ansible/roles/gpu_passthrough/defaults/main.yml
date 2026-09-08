@@ -1,0 +1,19 @@
+---
+gpu_passthrough_enabled: true
+gpu_passthrough_grub_cmdline: "quiet amd_iommu=on iommu=pt pcie_acs_override=downstream,multifunction"
+gpu_passthrough_vfio_modules:
+  - vfio
+  - vfio_iommu_type1
+  - vfio_pci
+gpu_passthrough_blacklist_drivers:
+  - nouveau
+  - radeon
+  - amdgpu
+gpu_passthrough_pci_ids: []
+gpu_passthrough_disable_vga: true
+# bootstrap.sh overwrote PVE's own /etc/modprobe.d/pve-blacklist.conf, which
+# wiped the "blacklist nvidiafb" line it ships with. Here we use our own file
+# and leave PVE's alone.
+gpu_passthrough_blacklist_file: /etc/modprobe.d/zz-homelab-gpu-blacklist.conf
+gpu_passthrough_vfio_conf_file: /etc/modprobe.d/vfio.conf
+gpu_passthrough_modules_load_file: /etc/modules-load.d/vfio.conf

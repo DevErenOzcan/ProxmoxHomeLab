@@ -1,0 +1,98 @@
+---
+# The equivalent of bootstrap.sh step [8/10].
+# AMD GPUs (Cezanne/Vega) cannot reset themselves after a VM shuts down; the
+# vendor-reset DKMS module works around that reset bug.
+
+- name: vendor_reset | Install prerequisites
+  ansible.builtin.apt:
+    name: "{{ vendor_reset_prereqs }}"
+    state: present
+
+- name: vendor_reset | Check that headers for the running kernel are present
+  ansible.builtin.stat:
+    path: "/lib/modules/{{ ansible_kernel }}/build"
+  register: vendor_reset_kernel_build
+
+- name: vendor_reset | Kernel headers are missing
+  ansible.builtin.fail:
+    msg: >-
+      /lib/modules/{{ ansible_kernel }}/build does not exist, so DKMS cannot
+      build. Install the base packages first:  pve-state --tags base
+  when:
+    - not vendor_reset_kernel_build.stat.exists
+    - not ansible_check_mode
+
+- name: vendor_reset | Check whether the module is already built for this kernel
+  ansible.builtin.command: "dkms status -m vendor-reset -k {{ ansible_kernel }}"
+  register: vendor_reset_dkms_status
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: vendor_reset | Dry-run note
+  ansible.builtin.debug:
+    msg: >-
+      vendor-reset is not installed for {{ ansible_kernel }}. On a real run,
+      {{ vendor_reset_repo }} would be cloned, patched and built with DKMS.
+  when:
+    - "'installed' not in (vendor_reset_dkms_status.stdout | default(''))"
+    - ansible_check_mode
+
+# Clone, patch and build only when the module is missing. This keeps repeated
+# runs quiet and avoids rebuilding on every converge.
+- name: vendor_reset | Fetch, patch and build with DKMS
+  when:
+    - "'installed' not in (vendor_reset_dkms_status.stdout | default(''))"
+    - not ansible_check_mode
+  block:
+
+    - name: vendor_reset | Clone the vendor-reset repository
+      ansible.builtin.git:
+        repo: "{{ vendor_reset_repo }}"
+        dest: "{{ vendor_reset_src_dir }}"
+        version: "{{ vendor_reset_version }}"
+        force: true
+
+    # strlcpy was removed from recent kernels.
+    - name: vendor_reset | Patch atom.c (strlcpy -> strscpy)
+      ansible.builtin.replace:
+        path: "{{ vendor_reset_src_dir }}/src/amd/amdgpu/atom.c"
+        regexp: 'strlcpy'
+        replace: 'strscpy'
+
+    # asm/unaligned.h became linux/unaligned.h in kernel 6.12.
+    - name: vendor_reset | Patch atom.c (unaligned.h path)
+      ansible.builtin.replace:
+        path: "{{ vendor_reset_src_dir }}/src/amd/amdgpu/atom.c"
+        regexp: '<asm/unaligned[.]h>'
+        replace: '<linux/unaligned.h>'
+
+    - name: vendor_reset | Build and install via DKMS
+      ansible.builtin.command:
+        cmd: "dkms install ."
+        chdir: "{{ vendor_reset_src_dir }}"
+      register: vendor_reset_dkms_install
+      changed_when: vendor_reset_dkms_install.rc == 0
+      notify: pve_update_initramfs
+
+- name: vendor_reset | Load the module at boot
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/vendor-reset.conf
+    content: |
+      # Managed by proxmox-homelab (ansible) - do not edit by hand
+      vendor-reset
+    owner: root
+    group: root
+    mode: "0644"
+  notify: pve_update_initramfs
+
+- name: vendor_reset | Set the device_specific module parameter
+  ansible.builtin.copy:
+    dest: /etc/modprobe.d/vendor-reset.conf
+    content: |
+      # Managed by proxmox-homelab (ansible) - do not edit by hand
+      options vendor-reset device_specific=1
+    owner: root
+    group: root
+    mode: "0644"
+  notify: pve_update_initramfs

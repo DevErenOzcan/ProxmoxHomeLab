@@ -1,0 +1,12 @@
+---
+vendor_reset_enabled: true
+vendor_reset_repo: "https://github.com/gnif/vendor-reset.git"
+vendor_reset_version: "master"
+vendor_reset_src_dir: "/usr/src/vendor-reset"
+# So the role also works on its own, it installs its own prerequisites.
+# Kernel headers are NOT installed here -- that is base_packages' job, because
+# picking the right version requires querying the repositories.
+vendor_reset_prereqs:
+  - git
+  - dkms
+  - build-essential

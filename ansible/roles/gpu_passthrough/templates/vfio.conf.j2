@@ -1,0 +1,3 @@
+# {{ ansible_managed }}
+# The [vendor:device] pairs from "lspci -nn" that get bound to vfio-pci.
+options vfio-pci ids={{ gpu_passthrough_pci_ids | join(',') }}{{ ' disable_vga=1' if gpu_passthrough_disable_vga else '' }}

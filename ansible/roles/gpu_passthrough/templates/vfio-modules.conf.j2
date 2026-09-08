@@ -1,0 +1,7 @@
+# {{ ansible_managed }}
+# VFIO modules to load at boot.
+# Note: vfio_virqfd was folded into vfio in kernel 6.2 and no longer exists as
+# a separate module.
+{% for mod in gpu_passthrough_vfio_modules %}
+{{ mod }}
+{% endfor %}
