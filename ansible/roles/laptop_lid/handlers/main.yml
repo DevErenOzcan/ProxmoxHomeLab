@@ -1,0 +1,7 @@
+---
+- name: Restart systemd-logind
+  listen: laptop_lid_restart_logind
+  ansible.builtin.systemd_service:
+    name: systemd-logind
+    state: restarted
+  when: laptop_lid_restart_logind | default(true)

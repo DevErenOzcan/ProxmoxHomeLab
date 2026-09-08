@@ -1,0 +1,66 @@
+---
+# The equivalent of bootstrap.sh step [3/10].
+# bootstrap.sh guarded this with "command -v terraform"; ansible is idempotent
+# by design, so no such guard is needed.
+
+- name: terraform | Ensure /etc/apt/keyrings exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: terraform | Download the HashiCorp GPG key
+  ansible.builtin.get_url:
+    url: "{{ terraform_gpg_url }}"
+    dest: "{{ terraform_keyring }}"
+    owner: root
+    group: root
+    mode: "0644"
+    force: false
+
+- name: terraform | Add the HashiCorp APT repository
+  ansible.builtin.deb822_repository:
+    name: hashicorp
+    types: [deb]
+    uris: "{{ terraform_apt_uri }}"
+    suites: ["{{ terraform_apt_suite }}"]
+    components: [main]
+    signed_by: "{{ terraform_keyring }}"
+    enabled: true
+    state: present
+  register: terraform_repo
+
+- name: terraform | Refresh the APT cache if the repository was added
+  ansible.builtin.apt:
+    update_cache: true
+  when: terraform_repo is changed
+
+- name: terraform | Check whether the package is visible
+  ansible.builtin.command: "apt-cache policy {{ terraform_package }}"
+  register: terraform_probe
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: terraform | Dry-run note
+  ansible.builtin.debug:
+    msg: >-
+      Dry run: {{ terraform_package }} is not in the APT cache yet, because
+      --check mode did not write the HashiCorp repository to disk.
+      It will be installed on a real run.
+  when:
+    - ansible_check_mode
+    - >-
+      terraform_probe.stdout is not search('Candidate:')
+      or terraform_probe.stdout is search('Candidate: [(]none[)]')
+
+- name: terraform | Install the Terraform package
+  ansible.builtin.apt:
+    name: "{{ terraform_package }}"
+    state: present
+  when: >-
+    not ansible_check_mode
+    or (terraform_probe.stdout is search('Candidate:')
+        and terraform_probe.stdout is not search('Candidate: [(]none[)]'))

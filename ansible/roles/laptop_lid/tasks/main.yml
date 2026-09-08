@@ -1,0 +1,28 @@
+---
+# The equivalent of bootstrap.sh step [9/10].
+# Keeps a laptop running Proxmox awake when the lid is closed.
+# bootstrap.sh edited /etc/systemd/logind.conf with sed; this uses systemd's own
+# drop-in mechanism instead, so the setting survives package updates that
+# rewrite the vendor file.
+
+- name: laptop_lid | Ensure logind.conf.d exists
+  ansible.builtin.file:
+    path: "{{ laptop_lid_dropin | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: laptop_lid | Disable lid switch actions
+  ansible.builtin.copy:
+    dest: "{{ laptop_lid_dropin }}"
+    content: |
+      # Managed by proxmox-homelab (ansible) - do not edit by hand
+      [Login]
+      HandleLidSwitch={{ laptop_lid_action }}
+      HandleLidSwitchExternalPower={{ laptop_lid_action }}
+      HandleLidSwitchDocked={{ laptop_lid_action }}
+    owner: root
+    group: root
+    mode: "0644"
+  notify: laptop_lid_restart_logind

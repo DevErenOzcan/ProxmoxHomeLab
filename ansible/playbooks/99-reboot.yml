@@ -1,0 +1,38 @@
+---
+# The equivalent of bootstrap.sh step [10/10] -- but not automatic.
+# The old script ended with an unconditional "reboot". Rebooting the host on
+# every ansible run is not what we want: this play reboots only when a reboot
+# is actually needed AND it was explicitly asked for.
+- name: Reboot handling
+  hosts: proxmox_nodes
+  become: true
+  gather_facts: false
+  tags: [always, reboot]
+  tasks:
+    - name: reboot | Check whether a reboot is pending
+      ansible.builtin.stat:
+        path: /run/reboot-required
+      register: reboot_marker
+
+    - name: reboot | Report reboot status
+      ansible.builtin.debug:
+        msg: >-
+          {{ 'REBOOT REQUIRED - kernel cmdline / modules / initramfs changed.'
+             if reboot_marker.stat.exists
+             else 'No reboot required.' }}
+
+    - name: reboot | Reboot the host
+      ansible.builtin.command: "shutdown -r +{{ pve_reboot_delay_minutes | default(1) }} 'proxmox-homelab: rebooting after ansible converge'"
+      changed_when: true
+      when:
+        - reboot_marker.stat.exists
+        - pve_reboot_after_converge | default(false) | bool
+
+    - name: reboot | Remind how to reboot
+      ansible.builtin.debug:
+        msg: >-
+          To reboot:  ansible-playbook site.yml -e pve_reboot_after_converge=true
+          or simply:  reboot
+      when:
+        - reboot_marker.stat.exists
+        - not (pve_reboot_after_converge | default(false) | bool)

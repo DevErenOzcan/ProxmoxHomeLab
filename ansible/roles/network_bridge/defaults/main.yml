@@ -1,0 +1,12 @@
+---
+network_bridge_enabled: true
+network_bridge_interfaces_file: /etc/network/interfaces
+# Run "ifreload -a" after a change? If disabled, the bridge only appears after
+# the next reboot.
+network_bridge_reload: true
+network_bridges:
+  - name: vmbr1
+    comment: "Isolated Home Lab bridge"
+    ports: "none"
+    stp: "off"
+    fd: 0

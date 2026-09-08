@@ -48,8 +48,8 @@ resource "proxmox_virtual_environment_vm" "windows_11" {
     version      = "v2.0"
   }
 
-  # Terraform bpg/proxmox provider'ı SADECE 1 adet CD-ROM destekler.
-  # 1. CD-ROM: Windows 11 Kurulum ISO'su
+  # The bpg/proxmox provider supports exactly ONE CD-ROM.
+  # CD-ROM 1: the Windows 11 installer ISO
   cdrom {
     enabled   = true
     file_id   = var.iso_file_id

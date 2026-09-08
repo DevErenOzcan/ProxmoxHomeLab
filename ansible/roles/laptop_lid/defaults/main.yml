@@ -1,0 +1,8 @@
+---
+laptop_lid_enabled: true
+# ignore | suspend | poweroff | lock | hibernate
+laptop_lid_action: "ignore"
+laptop_lid_dropin: /etc/systemd/logind.conf.d/10-homelab-lid.conf
+# Restarting logind can affect login sessions on the host. Set this to false to
+# have the setting take effect on the next reboot instead.
+laptop_lid_restart_logind: true

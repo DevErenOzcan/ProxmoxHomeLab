@@ -1,0 +1,17 @@
+---
+# Repositories, system upgrade, base packages and Terraform.
+# Nothing here requires a reboot.
+- name: Base host state (repos, packages, terraform)
+  hosts: proxmox_nodes
+  become: true
+  gather_facts: true
+  roles:
+    - role: pve_common
+      tags: [always]
+    - role: pve_repos
+      tags: [base, repos]
+    - role: base_packages
+      tags: [base, packages]
+    - role: terraform
+      tags: [base, terraform]
+      when: terraform_install | default(true)

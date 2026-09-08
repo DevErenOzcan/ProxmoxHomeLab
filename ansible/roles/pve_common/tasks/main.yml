@@ -1,0 +1,10 @@
+---
+# This role has no function of its own. It exists to define the handlers that
+# several roles share, in one place. The important one is pve_update_initramfs:
+# both gpu_passthrough and vendor_reset notify it, and because it is defined
+# once, the initramfs is rebuilt ONCE instead of twice.
+- name: pve_common | Shared handlers loaded
+  ansible.builtin.debug:
+    msg: "pve_common loaded (shared handlers are available)"
+  changed_when: false
+  tags: [always]

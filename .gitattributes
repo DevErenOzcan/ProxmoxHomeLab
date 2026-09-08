@@ -1,0 +1,7 @@
+# This repository runs on Linux (Proxmox). Keep the working tree LF even in a
+# Windows checkout with core.autocrlf=true; otherwise shell scripts shipped to
+# the host fail with "bad interpreter: ^M".
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.iso binary

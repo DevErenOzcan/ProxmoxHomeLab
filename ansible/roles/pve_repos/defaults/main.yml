@@ -1,0 +1,8 @@
+---
+pve_repos_disable_enterprise: true
+pve_repos_enable_no_subscription: true
+pve_repos_enable_ceph_no_subscription: false
+pve_repos_ceph_release: "ceph-squid"
+pve_repos_suite: "{{ ansible_distribution_release }}"
+pve_repos_clear_legacy_sources_list: true
+pve_repos_keyring: /usr/share/keyrings/proxmox-archive-keyring.gpg

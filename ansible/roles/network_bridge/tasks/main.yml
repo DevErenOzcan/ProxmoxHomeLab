@@ -1,0 +1,24 @@
+---
+# The Terraform modules attach their VMs to vmbr1
+# (terraform/environments/local/main.tf), so this bridge must exist on the host.
+# This is the role form of the task that used to live in
+# ansible/playbooks/01-host-prep.yml.
+
+- name: network_bridge | Write bridge definitions into /etc/network/interfaces
+  ansible.builtin.blockinfile:
+    path: "{{ network_bridge_interfaces_file }}"
+    marker: "# {mark} ANSIBLE MANAGED BRIDGE {{ item.name }}"
+    insertbefore: '^source\s'
+    block: |
+      {% if item.comment is defined %}
+      # {{ item.comment }}
+      {% endif %}
+      auto {{ item.name }}
+      iface {{ item.name }} inet manual
+              bridge-ports {{ item.ports | default('none') }}
+              bridge-stp {{ item.stp | default('off') }}
+              bridge-fd {{ item.fd | default(0) }}
+  loop: "{{ network_bridges }}"
+  loop_control:
+    label: "{{ item.name }}"
+  notify: network_bridge_reload_now

@@ -1,0 +1,15 @@
+---
+# Full desired state of the Proxmox homelab host.
+# Everything the old bootstrap.sh did in steps [1/10] - [10/10] lives here.
+#
+#   ansible-playbook site.yml                 # apply everything
+#   ansible-playbook site.yml --check --diff  # dry run, changes nothing
+#   ansible-playbook site.yml --tags base     # repos / packages / terraform only
+#   ansible-playbook site.yml --tags gpu      # passthrough + vendor-reset only
+#   ansible-playbook site.yml -e pve_reboot_after_converge=true
+#
+- import_playbook: playbooks/10-base.yml
+- import_playbook: playbooks/20-network.yml
+- import_playbook: playbooks/30-gpu.yml
+- import_playbook: playbooks/40-laptop.yml
+- import_playbook: playbooks/99-reboot.yml

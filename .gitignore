@@ -8,4 +8,7 @@
 # Ansible
 *.retry
 *.vault
+
+# Local
 .idea
+.env

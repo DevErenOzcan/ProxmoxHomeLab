@@ -1,0 +1,5 @@
+# {{ ansible_managed }}
+# Keep the host from binding the GPUs itself so they stay available to vfio-pci.
+{% for drv in gpu_passthrough_blacklist_drivers %}
+blacklist {{ drv }}
+{% endfor %}

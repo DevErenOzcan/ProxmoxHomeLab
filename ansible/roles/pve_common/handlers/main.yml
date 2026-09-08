@@ -1,0 +1,25 @@
+---
+# Handlers shared by more than one role.
+#
+# NOTE: handlers run in the order they are DEFINED here, not in the order they
+# were notified. The order below is deliberate: grub first, then initramfs,
+# and the reboot marker last.
+
+- name: Update GRUB
+  listen: pve_update_grub
+  ansible.builtin.command: update-grub
+  changed_when: true
+  notify: pve_reboot_required
+
+- name: Rebuild initramfs for all kernels
+  listen: pve_update_initramfs
+  ansible.builtin.command: update-initramfs -u -k all
+  changed_when: true
+  notify: pve_reboot_required
+
+- name: Mark reboot as required
+  listen: pve_reboot_required
+  ansible.builtin.copy:
+    dest: /run/reboot-required
+    content: "proxmox-homelab: kernel cmdline / modules / initramfs changed\n"
+    mode: "0644"

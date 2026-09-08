@@ -1,0 +1,6 @@
+---
+- name: Reload network configuration
+  listen: network_bridge_reload_now
+  ansible.builtin.command: ifreload -a
+  changed_when: true
+  when: network_bridge_reload | default(true)

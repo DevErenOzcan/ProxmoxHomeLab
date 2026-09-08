@@ -10,7 +10,7 @@ resource "proxmox_virtual_environment_vm" "virtual_router" {
   name        = var.router_name
   node_name   = var.proxmox_node
   vm_id       = var.vm_id
-  description = "pfSense/OPNsense Firewall Router (Boş Kurulum)"
+  description = "pfSense/OPNsense firewall router (blank install)"
 
   cpu {
     cores = 2
@@ -21,7 +21,7 @@ resource "proxmox_virtual_environment_vm" "virtual_router" {
     dedicated = 2048
   }
 
-  # Boş bir işletim sistemi diski (Kurulum buraya yapılacak)
+  # Blank OS disk - the installer writes here
   disk {
     datastore_id = "local-lvm"
     interface    = "scsi0"
@@ -29,21 +29,21 @@ resource "proxmox_virtual_environment_vm" "virtual_router" {
     file_format  = "raw"
   }
 
-  # Terraform'un indirdiği ISO'yu CD-ROM olarak takıyoruz
+  # Attach the ISO Terraform downloaded as a CD-ROM
   cdrom {
     enabled   = true
     file_id   = var.iso_file_id
     interface = "ide2"
   }
 
-  # 1. AĞ BACAĞI: WAN (Ev Ağı)
+  # NIC 1: WAN (home network)
   network_device {
     bridge      = "vmbr0"
     mac_address = var.wan_mac_address
     model       = "virtio"
   }
 
-  # 2. AĞ BACAĞI: LAN (İzole Proxmox Ağı)
+  # NIC 2: LAN (isolated Proxmox network)
   network_device {
     bridge = "vmbr1"
     model  = "virtio"
