@@ -111,9 +111,14 @@ laptop_lid_action: "ignore"
 laptop_lid_restart_logind: true
 
 # --- Reboot (bootstrap [10/10]) ---------------------------------------------
-# bootstrap.sh ended with an unconditional reboot. Here the default is OFF:
-# the playbook only drops /run/reboot-required and warns.
-# To actually reboot:
-#   ansible-playbook site.yml -e pve_reboot_after_converge=true
-pve_reboot_after_converge: false
+# ON: a converge that changes GRUB, kernel modules or the initramfs reboots the
+# host on its own. This is NOT an unconditional reboot like the old bootstrap.sh
+# did -- it only fires when something actually left /run/reboot-required behind
+# (which apt also creates when dist-upgrade pulls a new kernel), so an ordinary
+# no-change run never reboots.
+#
+# To skip the reboot for one run:
+#   ./sync.sh --run -e pve_reboot_after_converge=false
+pve_reboot_after_converge: true
+# shutdown -r +N : gives open sessions N minutes' notice.
 pve_reboot_delay_minutes: 1
