@@ -22,6 +22,13 @@ warn() { printf "${YELLOW}%s${NC}\n" "$*"; }
 die()  { printf "${RED}ERROR: %s${NC}\n" "$*" >&2; exit 1; }
 
 STATE_DIR="${STATE_DIR:-/opt/proxmox-homelab}"
+
+# This script needs the ansible/ tree sitting next to it, so it cannot be
+# piped in over stdin ('ssh host bash -s < bootstrap.sh'). Say so clearly
+# instead of failing on an unbound BASH_SOURCE.
+if [ -z "${BASH_SOURCE[0]:-}" ]; then
+    die "Do not pipe this script into bash; it needs the ansible/ tree beside it. Copy the repo to the host first (sync.sh --bootstrap does it for you)."
+fi
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODE="none"
 
