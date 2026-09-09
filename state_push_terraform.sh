@@ -1,107 +1,167 @@
 #!/usr/bin/env bash
 #
-# Runs Terraform against the local Proxmox node. Meant to be run ON the host
-# (that is why the endpoint is 127.0.0.1), either directly or through
-# `./sync.sh --shell`.
+# Applies the TERRAFORM state to the Proxmox host, from here -- no need to log
+# in to the host first.
 #
-#   ./run_vms.sh                 plan, then ask before applying
-#   ./run_vms.sh --guests        same, but also create the guest VMs
-#   ./run_vms.sh --plan          plan only, change nothing
-#   ./run_vms.sh --auto          apply without asking
+# Terraform runs ON the host (its endpoint is loopback, so the API never leaves
+# the box). This script mirrors the repository there, then drives terraform over
+# SSH. The Proxmox password is read locally from .env and handed to the remote
+# terraform on stdin, so it never lands on the host's disk or in its argv --
+# .env itself is deliberately never copied over.
 #
-# The first apply creates only the OPNsense ISO download and the firewall VM.
-# Guests stay behind -var create_guests=true because a guest booted before the
-# firewall exists has no gateway. See docs/network.md.
+# USAGE
+#   ./state_push_terraform.sh              Push, plan, ask, apply
+#   ./state_push_terraform.sh --plan       Push and plan only, change nothing
+#   ./state_push_terraform.sh --auto       Apply without asking
+#   ./state_push_terraform.sh --guests     Include the guest VMs, not just the firewall
+#   ./state_push_terraform.sh --output     Print the terraform outputs and stop
+#   ./state_push_terraform.sh --destroy    Tear it all down (asks twice)
+#   ./state_push_terraform.sh --init       Force terraform init -upgrade
+#   ./state_push_terraform.sh --no-push    Use what is already on the host
+#   ./state_push_terraform.sh --shell      Open a shell in the terraform directory
+#
+# Anything unrecognised is passed straight to terraform, e.g.
+#   ./state_push_terraform.sh --plan -target=module.firewall
+#
+# Ansible has its own entry point: ./state_push_ansible.sh
+#
+# ORDER OF OPERATIONS
+#   The bridges are host OS state owned by Ansible, and terraform itself is
+#   installed by Ansible. So the first time round:
+#       ./state_push_ansible.sh --tags base,network
+#       ./state_push_terraform.sh
+#   This script checks both and tells you which command is missing.
 #
 set -euo pipefail
 
-GREEN=$'\033[0;32m'; YELLOW=$'\033[1;33m'; RED=$'\033[0;31m'; NC=$'\033[0m'
-say()  { printf '%s%s%s\n' "$GREEN"  "$*" "$NC"; }
-warn() { printf '%s%s%s\n' "$YELLOW" "$*" "$NC"; }
-die()  { printf '%sERROR: %s%s\n' "$RED" "$*" "$NC" >&2; exit 1; }
-
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WORK_DIR="$REPO_DIR/terraform/environments/local"
+# shellcheck source=lib/push.sh
+. "$REPO_DIR/lib/push.sh"
 
-GUESTS=0
+usage() { sed -n '3,34p' "${BASH_SOURCE[0]}" | sed 's/^#\{1,\} \{0,1\}//'; }
+
+# --------------------------------------------------------------------------
+# Arguments
+# --------------------------------------------------------------------------
+ACTION="apply"
 AUTO=0
-PLAN_ONLY=0
-for arg in "$@"; do
-    case "$arg" in
-        --guests) GUESTS=1 ;;
-        --auto)   AUTO=1 ;;
-        --plan)   PLAN_ONLY=1 ;;
-        -h|--help) sed -n '3,15p' "${BASH_SOURCE[0]}" | sed 's/^#\{1,\} \{0,1\}//'; exit 0 ;;
-        *) die "Unknown argument: $arg" ;;
+GUESTS=0
+FORCE_INIT=0
+DO_PUSH=1
+PASSTHRU=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -p | --plan)    ACTION="plan" ;;
+        -y | --auto)    AUTO=1 ;;
+        -g | --guests)  GUESTS=1 ;;
+        -o | --output)  ACTION="output" ;;
+        --destroy)      ACTION="destroy" ;;
+        --init)         FORCE_INIT=1 ;;
+        --no-push)      DO_PUSH=0 ;;
+        --shell)        ACTION="shell" ;;
+        -h | --help)    usage; exit 0 ;;
+        --)             shift; PASSTHRU+=("$@"); break ;;
+        *)              PASSTHRU+=("$1") ;;
     esac
+    shift
 done
 
-[ -d "$WORK_DIR" ] || die "$WORK_DIR not found. Run this from the repository root."
-command -v terraform >/dev/null 2>&1 || die "terraform is not installed. Run: pve-state --tags base"
-
-# The bridges are host OS state managed by Ansible, not Terraform. Without them
-# the firewall VM fails to start with "bridge 'vmbr2' does not exist".
-for br in vmbr1 vmbr2 vmbr3; do
-    ip link show "$br" >/dev/null 2>&1 || die "$br is missing. Run: pve-state --tags network"
-done
-
-cd "$WORK_DIR"
-
-# Password resolution, in order: the environment, then .env, then a prompt.
-# Note that sync.sh deliberately does NOT copy .env to the host -- the password
-# has no business sitting in plaintext on the box it unlocks -- so on the host
-# the .env branch never fires and you get the prompt. To run non-interactively
-# there, pass it in:
-#
-#   TF_VAR_proxmox_password='...' ./run_vms.sh --auto
-#
-if [ -z "${TF_VAR_proxmox_password:-}" ]; then
-    if [ -f "$REPO_DIR/.env" ] && grep -q '^proxmox_passwd=' "$REPO_DIR/.env"; then
-        TF_VAR_proxmox_password="$(sed -n 's/^proxmox_passwd=//p' "$REPO_DIR/.env" | tr -d '\r\n')"
-        say "Password read from .env"
-    elif [ -t 0 ]; then
-        read -r -s -p "Proxmox root password: " TF_VAR_proxmox_password
-        echo
-    else
-        die "No terminal to prompt on. Set TF_VAR_proxmox_password, or run this from an interactive shell (./sync.sh --shell)."
-    fi
-fi
-export TF_VAR_proxmox_password
-export TF_VAR_proxmox_endpoint="${TF_VAR_proxmox_endpoint:-https://127.0.0.1:8006/}"
-
-TF_ARGS=()
+TF_VARS=""
 if [ "$GUESTS" -eq 1 ]; then
-    TF_ARGS+=(-var "create_guests=true")
-    warn "Guest VMs included."
-else
-    say "Firewall only. Add --guests once OPNsense is installed and routing."
+    TF_VARS="-var create_guests=true"
 fi
 
-say "[1/3] terraform init"
-terraform init -input=false
+# --------------------------------------------------------------------------
+# Remote terraform
+# --------------------------------------------------------------------------
+# Deliberately NOT using "terraform plan -out": a saved plan file records the
+# values of all input variables, including the Proxmox password, and writing
+# that to the host's disk is exactly what feeding the password over stdin
+# avoids. The cost is that apply re-plans -- which is also a safety net, since
+# it re-checks reality right before changing it.
+tf_remote() {
+    local tf_args="$1"
+    local init_cmd="if [ ! -d .terraform ]; then terraform init -input=false; fi"
+    if [ "$FORCE_INIT" -eq 1 ]; then
+        init_cmd="terraform init -input=false -upgrade"
+    fi
 
-say "[2/3] terraform plan"
-terraform plan -input=false "${TF_ARGS[@]}"
+    pssh_pw "set -e
+cd '$TF_DIR'
+export TF_VAR_proxmox_password=\"\$PW\"
+export TF_VAR_proxmox_endpoint='$TF_ENDPOINT'
+$init_cmd
+terraform $tf_args"
+}
 
-if [ "$PLAN_ONLY" -eq 1 ]; then
-    say "Plan only, nothing applied."
-    exit 0
+extra_args() {
+    if [ ${#PASSTHRU[@]} -gt 0 ]; then quote_args "${PASSTHRU[@]}"; fi
+}
+
+# --------------------------------------------------------------------------
+# Main
+# --------------------------------------------------------------------------
+setup_auth
+
+if [ "$ACTION" = "shell" ]; then
+    open_shell "$TF_DIR"
 fi
 
-if [ "$AUTO" -ne 1 ]; then
-    printf '%sApply this plan? [y/N] %s' "$YELLOW" "$NC"
-    read -r reply
-    case "$reply" in
-        y|Y|yes|YES) ;;
-        *) say "Cancelled."; exit 0 ;;
-    esac
+if [ "$DO_PUSH" -eq 1 ]; then
+    push
 fi
 
-say "[3/3] terraform apply"
-terraform apply -input=false -auto-approve "${TF_ARGS[@]}"
+require_remote_terraform
 
-echo
-say "Done. What to do next:"
-terraform output -json next_steps 2>/dev/null \
-    | tr -d '[]"' | tr ',' '\n' | sed 's/^/  /' \
-    || terraform output
+case "$ACTION" in
+
+    output)
+        tf_remote "output$(extra_args)"
+        ;;
+
+    plan)
+        info "terraform plan"
+        tf_remote "plan -input=false $TF_VARS$(extra_args)"
+        say "Plan only. Nothing was applied."
+        ;;
+
+    apply)
+        if [ "$GUESTS" -eq 1 ]; then
+            warn "Guest VMs included."
+        else
+            info "Firewall only. Add --guests once OPNsense is installed and routing."
+        fi
+
+        if [ "$AUTO" -ne 1 ]; then
+            info "terraform plan"
+            tf_remote "plan -input=false $TF_VARS$(extra_args)"
+            echo
+            if ! confirm "Apply this plan? [y/N] "; then
+                say "Cancelled."
+                exit 0
+            fi
+        fi
+
+        warn "terraform apply"
+        tf_remote "apply -input=false -auto-approve $TF_VARS$(extra_args)"
+
+        echo
+        say "Applied. What to do next:"
+        tf_remote "output -json next_steps" 2>/dev/null \
+            | tr -d '[]"' | tr ',' '\n' | sed 's/^ */  /' \
+            || true
+        ;;
+
+    destroy)
+        warn "This destroys every guest Terraform manages on $PVE_HOST."
+        info "terraform plan -destroy"
+        tf_remote "plan -destroy -input=false $TF_VARS$(extra_args)"
+        echo
+        if ! confirm "Type 'destroy' to confirm: " "destroy"; then
+            say "Cancelled."
+            exit 0
+        fi
+        warn "terraform destroy"
+        tf_remote "destroy -input=false -auto-approve $TF_VARS$(extra_args)"
+        ;;
+esac

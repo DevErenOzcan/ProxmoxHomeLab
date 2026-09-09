@@ -1,7 +1,8 @@
 ---
 # Default inventory: the playbook runs ON the Proxmox host itself.
-# bootstrap.sh installs this tree under /opt/proxmox-homelab, and sync.sh
-# overwrites it on every change. The connection is "local", so no SSH is
+# bootstrap.sh installs this tree under /opt/proxmox-homelab, and
+# state_push_ansible.sh overwrites it on every change. The connection is
+# "local", so no SSH is
 # involved -- ansible configures the machine it is already running on.
 all:
   children:
