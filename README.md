@@ -129,9 +129,10 @@ watching alone dry-runs, and you ask for `--watch --run` explicitly.
 
 | Argument | What it does |
 |---|---|
-| (none) | Push, plan, ask, apply |
+| (none) | Push, plan, ask, apply — firewall + cloud-image guests |
 | `--plan` | Push and plan only |
-| `--guests` | Include the guest VMs, not just the firewall |
+| `--no-guests` | Firewall only |
+| `--desktop` | Also build the GPU-passthrough workstation |
 | `--auto` | Apply without asking |
 | `--output` | Print the terraform outputs |
 | `--destroy` | Tear it down (asks twice) |
@@ -233,8 +234,8 @@ terraform/
     outputs.tf               interface map, addresses, the static route to add
   modules/
     opnsense/                firewall VM: WAN + LAN + DMZ + LAB, boots first
-    ubuntu_server/           see the KNOWN ISSUE note in vms.tf
-    ubuntu_desktop/
+    ubuntu_cloud/            Ubuntu guests from a cloud image + cloud-init
+    ubuntu_desktop/          GPU-passthrough workstation (off by default)
     windows_11/
 ```
 

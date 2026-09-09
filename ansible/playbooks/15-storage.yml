@@ -1,0 +1,15 @@
+---
+# Turns a leftover volume group into Proxmox storage.
+#
+# Separate from 10-base because it is the only playbook here that can destroy
+# data. It does nothing unless pve_storage_reclaim is true AND every guard in
+# the role agrees the volume group is disposable.
+- name: Storage
+  hosts: proxmox_nodes
+  become: true
+  gather_facts: true
+  roles:
+    - role: pve_common
+      tags: [always]
+    - role: pve_storage
+      tags: [storage]

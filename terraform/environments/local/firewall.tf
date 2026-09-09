@@ -24,4 +24,9 @@ module "firewall" {
 
   cores  = var.firewall_cores
   memory = var.firewall_memory
+
+  # false until the console has assigned interfaces and set WAN to
+  # 192.168.1.201. See the comment on the variable - the factory default is
+  # 192.168.1.1, which collides with the home router.
+  wan_connected = var.firewall_wan_connected
 }

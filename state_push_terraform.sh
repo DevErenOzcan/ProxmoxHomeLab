@@ -13,7 +13,8 @@
 #   ./state_push_terraform.sh              Push, plan, ask, apply
 #   ./state_push_terraform.sh --plan       Push and plan only, change nothing
 #   ./state_push_terraform.sh --auto       Apply without asking
-#   ./state_push_terraform.sh --guests     Include the guest VMs, not just the firewall
+#   ./state_push_terraform.sh --no-guests  Firewall only, skip the guest VMs
+#   ./state_push_terraform.sh --desktop    Also build the GPU-passthrough workstation
 #   ./state_push_terraform.sh --output     Print the terraform outputs and stop
 #   ./state_push_terraform.sh --destroy    Tear it all down (asks twice)
 #   ./state_push_terraform.sh --init       Force terraform init -upgrade
@@ -38,14 +39,15 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/push.sh
 . "$REPO_DIR/lib/push.sh"
 
-usage() { sed -n '3,34p' "${BASH_SOURCE[0]}" | sed 's/^#\{1,\} \{0,1\}//'; }
+usage() { sed -n '3,36p' "${BASH_SOURCE[0]}" | sed 's/^#\{1,\} \{0,1\}//'; }
 
 # --------------------------------------------------------------------------
 # Arguments
 # --------------------------------------------------------------------------
 ACTION="apply"
 AUTO=0
-GUESTS=0
+GUESTS=1        # cloud-image guests are created by default
+DESKTOP=0       # the passthrough workstation is not (see vms.tf)
 FORCE_INIT=0
 DO_PUSH=1
 PASSTHRU=()
@@ -53,7 +55,9 @@ while [ $# -gt 0 ]; do
     case "$1" in
         -p | --plan)    ACTION="plan" ;;
         -y | --auto)    AUTO=1 ;;
-        -g | --guests)  GUESTS=1 ;;
+        -g | --guests)  GUESTS=1 ;;   # kept for muscle memory; now the default
+        --no-guests)    GUESTS=0 ;;
+        --desktop)      DESKTOP=1 ;;
         -o | --output)  ACTION="output" ;;
         --destroy)      ACTION="destroy" ;;
         --init)         FORCE_INIT=1 ;;
@@ -66,9 +70,9 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-TF_VARS=""
-if [ "$GUESTS" -eq 1 ]; then
-    TF_VARS="-var create_guests=true"
+TF_VARS="-var create_guests=$([ "$GUESTS" -eq 1 ] && echo true || echo false)"
+if [ "$DESKTOP" -eq 1 ]; then
+    TF_VARS="$TF_VARS -var create_desktop=true"
 fi
 
 # --------------------------------------------------------------------------
@@ -81,7 +85,10 @@ fi
 # it re-checks reality right before changing it.
 tf_remote() {
     local tf_args="$1"
-    local init_cmd="if [ ! -d .terraform ]; then terraform init -input=false; fi"
+    # Always init. It is a second or so once the providers are cached, and it
+    # is the only thing that notices a changed module source -- otherwise
+    # editing a module path fails with "Module not installed" on the next plan.
+    local init_cmd="terraform init -input=false"
     if [ "$FORCE_INIT" -eq 1 ]; then
         init_cmd="terraform init -input=false -upgrade"
     fi
@@ -127,9 +134,12 @@ case "$ACTION" in
 
     apply)
         if [ "$GUESTS" -eq 1 ]; then
-            warn "Guest VMs included."
+            info "Firewall + cloud-image guests."
         else
-            info "Firewall only. Add --guests once OPNsense is installed and routing."
+            info "Firewall only (--no-guests)."
+        fi
+        if [ "$DESKTOP" -eq 1 ]; then
+            warn "GPU-passthrough workstation included."
         fi
 
         if [ "$AUTO" -ne 1 ]; then

@@ -1,0 +1,25 @@
+---
+# Reclaiming a disk is destructive and cannot be undone, so it is off by
+# default and every guard below has to line up before anything is removed.
+pve_storage_reclaim: false
+
+# The volume group to destroy. Must be named explicitly - there is no wildcard
+# and no "whatever looks unused" heuristic.
+pve_storage_reclaim_vg: ""
+
+# The physical volume the new thin pool is built on. This is the partition the
+# reclaimed volume group was using.
+pve_storage_pv: /dev/nvme0n1p3
+
+# What gets created in its place.
+pve_storage_target_name: nvme2      # the Proxmox storage id
+pve_storage_target_vg: nvme2        # the LVM volume group
+pve_storage_thinpool: data
+pve_storage_content: images,rootdir
+
+# Guards. Turning any of these off means asserting by hand that the volume
+# group really is disposable.
+pve_storage_require_unmounted: true      # no logical volume may be mounted
+pve_storage_require_no_swap: true        # none may be an active swap device
+pve_storage_require_empty_pool: true     # the thin pool must be 0% used
+pve_storage_require_unreferenced: true   # Proxmox must not list it in storage.cfg

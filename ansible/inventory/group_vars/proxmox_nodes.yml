@@ -56,6 +56,21 @@ base_packages_abi_kernel_headers: true
 terraform_install: true
 terraform_apt_suite: "{{ ansible_distribution_release }}"
 
+# --- Storage ----------------------------------------------------------------
+# This host was installed twice. The first attempt left "pve-OLD-5807C00D"
+# holding all of nvme0n1 - about 460 GB that Proxmox does not reference, whose
+# thin pool never held a guest disk (0.00% used) and whose root filesystem has
+# an empty /var/lib/vz/images. The GPU workstation needs 300 GB and the live
+# pool has no room, so that disk gets reclaimed as a second storage.
+#
+# DESTRUCTIVE. The role refuses unless the volume group is unreferenced by
+# Proxmox, unmounted, not in use as swap, and its thin pool is empty.
+pve_storage_reclaim: true
+pve_storage_reclaim_vg: "pve-OLD-5807C00D"
+pve_storage_pv: /dev/nvme0n1p3
+pve_storage_target_name: nvme2
+pve_storage_target_vg: nvme2
+
 # --- Network bridges -------------------------------------------------------
 # The internal segments the OPNsense firewall routes between. All of them are
 # port-less: no physical NIC, and deliberately NO IP on the host either -- if

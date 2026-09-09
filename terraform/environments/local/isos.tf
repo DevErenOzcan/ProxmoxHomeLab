@@ -1,5 +1,5 @@
 # ============================================================================
-# INSTALLER MEDIA
+# INSTALLER MEDIA AND DISK IMAGES
 # ============================================================================
 # Resource name note: the provider renamed proxmox_virtual_environment_download_file
 # to proxmox_download_file ahead of its v1.0; the old name still works but warns.
@@ -25,27 +25,51 @@ resource "proxmox_download_file" "opnsense_iso" {
   checksum_algorithm      = "sha256"
   decompression_algorithm = "bz2"
   upload_timeout          = 1800
+
+  # With overwrite = true (the provider default) every plan wants to replace
+  # this resource: the decompressed size cannot be predicted, so "size" comes
+  # out as (known after apply), and size forces replacement. That means
+  # re-downloading 2 GB on every apply -- and deleting the ISO out from under
+  # the running firewall VM, which has it attached as a CD.
+  overwrite = false
 }
 
 # ---------------------------------------------------------------------------
-# Guest operating systems
+# Ubuntu cloud image - the disk the Linux guests boot from
 # ---------------------------------------------------------------------------
-# Gated on var.create_guests so the first apply brings up only the firewall.
-# Nothing else can reach the network until OPNsense is installed anyway.
-
-resource "proxmox_download_file" "ubuntu_server_iso" {
+# This is a disk image, not an installer. It boots straight to a login prompt
+# with cloud-init already applied, which is what makes the static addresses in
+# locals.tf actually take effect.
+#
+# Two details that will bite if changed carelessly:
+#
+#   * The file is named .qcow2, not .img. Proxmox only accepts
+#     ova|ovf|qcow2|raw|vmdk for the "import" content type, and Ubuntu's .img
+#     really is a qcow2 (its header starts with QFI\xfb), so this renames it to
+#     the truth rather than working around a check.
+#   * The URL pins a dated build. The floating .../release/ path would start
+#     serving a new image the moment Canonical publishes one, and the download
+#     would then fail its checksum. Bump both together.
+resource "proxmox_download_file" "ubuntu_cloud_image" {
   count = var.create_guests ? 1 : 0
 
-  content_type   = "iso"
-  datastore_id   = "local"
-  node_name      = var.node_name
-  url            = var.ubuntu_server_iso_url
-  file_name      = "ubuntu-server-amd64.iso"
-  upload_timeout = 3600
+  content_type       = "import"
+  datastore_id       = "local"
+  node_name          = var.node_name
+  url                = var.ubuntu_cloud_image_url
+  file_name          = var.ubuntu_cloud_image_file_name
+  checksum           = var.ubuntu_cloud_image_sha256
+  checksum_algorithm = "sha256"
+  upload_timeout     = 1800
 }
 
+# ---------------------------------------------------------------------------
+# Desktop workstation media
+# ---------------------------------------------------------------------------
+# The desktop VM is a GPU-passthrough workstation, so it gets a real installer
+# and a real screen rather than a cloud image. Gated separately - see vms.tf.
 resource "proxmox_download_file" "ubuntu_desktop_iso" {
-  count = var.create_guests ? 1 : 0
+  count = var.create_desktop ? 1 : 0
 
   content_type   = "iso"
   datastore_id   = "local"
@@ -55,8 +79,14 @@ resource "proxmox_download_file" "ubuntu_desktop_iso" {
   upload_timeout = 7200
 }
 
+# ---------------------------------------------------------------------------
+# Windows
+# ---------------------------------------------------------------------------
+# Microsoft's evaluation links expire ~24h after they are generated, so there
+# is no usable default. Leave var.windows_11_iso_url empty and both of these
+# are skipped along with the guest itself.
 resource "proxmox_download_file" "virtio_iso" {
-  count = var.create_guests ? 1 : 0
+  count = var.windows_11_iso_url != "" ? 1 : 0
 
   content_type   = "iso"
   datastore_id   = "local"
@@ -66,11 +96,8 @@ resource "proxmox_download_file" "virtio_iso" {
   upload_timeout = 3600
 }
 
-# Microsoft's evaluation links expire ~24h after they are generated, so there
-# is no usable default. Leave var.windows_11_iso_url empty and this is skipped;
-# set it to a fresh link when you actually want the Windows guest.
 resource "proxmox_download_file" "windows_11_iso" {
-  count = var.create_guests && var.windows_11_iso_url != "" ? 1 : 0
+  count = var.windows_11_iso_url != "" ? 1 : 0
 
   content_type   = "iso"
   datastore_id   = "local"
