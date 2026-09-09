@@ -1,14 +1,25 @@
 ---
 # The equivalent of bootstrap.sh step [8/10].
-# AMD GPUs (Cezanne/Vega) cannot reset themselves after a VM shuts down; the
-# vendor-reset DKMS module works around that reset bug.
+# AMD GPUs (Cezanne/Vega) cannot reset themselves after a VM releases them;
+# the vendor-reset DKMS module fixes that "reset bug".
+#
+# Two things about DKMS drive the shape of this role:
+#
+#   1. "dkms install ." implies "dkms add", which FAILS with "DKMS tree already
+#      contains" when the module/version is registered. So a rebuild after a
+#      kernel upgrade must NOT go through "install ." -- it has to name the
+#      module and kernel explicitly.
+#   2. "dkms add" COPIES the source to /usr/src/<name>-<version> and points
+#      /var/lib/dkms/<name>/<version>/source at that copy. Re-cloning and
+#      re-patching the staging checkout therefore changes nothing on its own --
+#      the copy has to be dropped first.
 
-- name: vendor_reset | Install prerequisites
+- name: vendor_reset | Prerequisite packages
   ansible.builtin.apt:
     name: "{{ vendor_reset_prereqs }}"
     state: present
 
-- name: vendor_reset | Check that headers for the running kernel are present
+- name: vendor_reset | Kernel headers in place for the running kernel
   ansible.builtin.stat:
     path: "/lib/modules/{{ ansible_kernel }}/build"
   register: vendor_reset_kernel_build
@@ -22,32 +33,75 @@
     - not vendor_reset_kernel_build.stat.exists
     - not ansible_check_mode
 
-- name: vendor_reset | Check whether the module is already built for this kernel
+- name: vendor_reset | Is it built for the running kernel
   ansible.builtin.command: "dkms status -m vendor-reset -k {{ ansible_kernel }}"
-  register: vendor_reset_dkms_status
+  register: vendor_reset_status_running
   changed_when: false
   failed_when: false
   check_mode: false
 
-- name: vendor_reset | Dry-run note
-  ansible.builtin.debug:
-    msg: >-
-      vendor-reset is not installed for {{ ansible_kernel }}. On a real run,
-      {{ vendor_reset_repo }} would be cloned, patched and built with DKMS.
-  # Reported as changed on purpose: a real run WOULD rebuild here, and a dry
-  # run whose recap says changed=0 reads as "already converged".
-  changed_when: true
-  when:
-    - "'installed' not in (vendor_reset_dkms_status.stdout | default(''))"
-    - ansible_check_mode
+- name: vendor_reset | Is it registered in the DKMS tree at all
+  ansible.builtin.command: "dkms status -m vendor-reset"
+  register: vendor_reset_status_any
+  changed_when: false
+  failed_when: false
+  check_mode: false
 
-# Clone, patch and build only when the module is missing. This keeps repeated
-# runs quiet and avoids rebuilding on every converge.
-- name: vendor_reset | Fetch, patch and build with DKMS
+# "vendor-reset/0.1.1, 7.0.14-16-pve, x86_64: installed" -> "0.1.1"
+- name: vendor_reset | Work out what is left to do
+  ansible.builtin.set_fact:
+    vendor_reset_built: "{{ 'installed' in (vendor_reset_status_running.stdout | default('')) }}"
+    vendor_reset_registered: "{{ (vendor_reset_status_any.stdout | default('')) | length > 0 }}"
+    vendor_reset_registered_version: >-
+      {{ (vendor_reset_status_any.stdout.split('/')[1].split(',')[0] | trim)
+         if (vendor_reset_status_any.stdout | default('')) | length > 0
+         else '' }}
+
+- name: vendor_reset | Nothing to do
+  ansible.builtin.debug:
+    msg: "vendor-reset {{ vendor_reset_registered_version }} is already built for {{ ansible_kernel }}."
+  when: vendor_reset_built
+
+# --------------------------------------------------------------------------
+# Path A -- the usual case after a kernel upgrade.
+# The source already in the DKMS tree is the patched one, so only the build for
+# this kernel is missing. Do NOT use "dkms install ." here (see note 1 above).
+# --------------------------------------------------------------------------
+- name: vendor_reset | Build for the running kernel from the registered source
+  ansible.builtin.command: >-
+    dkms install -m vendor-reset -v {{ vendor_reset_registered_version }}
+    -k {{ ansible_kernel }}
+  register: vendor_reset_rebuild
+  changed_when: vendor_reset_rebuild.rc == 0
   when:
-    - "'installed' not in (vendor_reset_dkms_status.stdout | default(''))"
+    - not vendor_reset_built
+    - vendor_reset_registered
+    - not vendor_reset_force_rebuild
+    - not ansible_check_mode
+  notify: pve_update_initramfs
+
+# --------------------------------------------------------------------------
+# Path B -- first install, or an explicit rebuild when upstream has changed.
+# --------------------------------------------------------------------------
+- name: vendor_reset | Fetch, patch and install from scratch
+  when:
+    - not vendor_reset_built
+    - (not vendor_reset_registered) or vendor_reset_force_rebuild
     - not ansible_check_mode
   block:
+
+    - name: vendor_reset | Drop the existing DKMS registration
+      ansible.builtin.command: >-
+        dkms remove -m vendor-reset -v {{ vendor_reset_registered_version }} --all
+      changed_when: true
+      when: vendor_reset_registered
+
+    # See note 2: without this the freshly patched clone is ignored.
+    - name: vendor_reset | Remove the stale DKMS source copy
+      ansible.builtin.file:
+        path: "/usr/src/vendor-reset-{{ vendor_reset_registered_version }}"
+        state: absent
+      when: vendor_reset_registered
 
     - name: vendor_reset | Clone the vendor-reset repository
       ansible.builtin.git:
@@ -56,8 +110,8 @@
         version: "{{ vendor_reset_version }}"
         force: true
 
-    # strlcpy was removed from recent kernels.
-    - name: vendor_reset | Patch atom.c (strlcpy -> strscpy)
+    # strlcpy was removed from newer kernels.
+    - name: vendor_reset | Patch atom.c (strlcpy to strscpy)
       ansible.builtin.replace:
         path: "{{ vendor_reset_src_dir }}/src/amd/amdgpu/atom.c"
         regexp: 'strlcpy'
@@ -70,13 +124,48 @@
         regexp: '<asm/unaligned[.]h>'
         replace: '<linux/unaligned.h>'
 
-    - name: vendor_reset | Build and install via DKMS
+    # "install ." is right here and only here: the tree is clean, so the
+    # implicit "add" it performs is exactly what is wanted.
+    - name: vendor_reset | Register and build with DKMS
       ansible.builtin.command:
         cmd: "dkms install ."
         chdir: "{{ vendor_reset_src_dir }}"
       register: vendor_reset_dkms_install
       changed_when: vendor_reset_dkms_install.rc == 0
       notify: pve_update_initramfs
+
+# Without this the module only becomes active at the next boot, so a converge
+# that just rebuilt it would still leave AMD reset broken until a restart.
+- name: vendor_reset | Is the module loaded right now
+  ansible.builtin.stat:
+    path: /sys/module/vendor_reset
+  register: vendor_reset_loaded
+
+- name: vendor_reset | Load the module now
+  ansible.builtin.command: modprobe vendor-reset
+  register: vendor_reset_modprobe
+  changed_when: vendor_reset_modprobe.rc == 0
+  when:
+    - not ansible_check_mode
+    - not vendor_reset_loaded.stat.exists
+    - >-
+      vendor_reset_built
+      or (vendor_reset_rebuild.changed | default(false))
+      or (vendor_reset_dkms_install.changed | default(false))
+
+- name: vendor_reset | Dry-run note
+  ansible.builtin.debug:
+    msg: >-
+      vendor-reset is not built for {{ ansible_kernel }}. A real run would
+      {{ 'build it from the source already registered with DKMS'
+         if (vendor_reset_registered and not vendor_reset_force_rebuild)
+         else 'clone, patch and register it from ' ~ vendor_reset_repo }}.
+  # Reported as changed on purpose: a real run WOULD rebuild here, and a dry
+  # run whose recap says changed=0 reads as "already converged".
+  changed_when: true
+  when:
+    - not vendor_reset_built
+    - ansible_check_mode
 
 - name: vendor_reset | Load the module at boot
   ansible.builtin.copy:
@@ -89,13 +178,27 @@
     mode: "0644"
   notify: pve_update_initramfs
 
-- name: vendor_reset | Set the device_specific module parameter
+# bootstrap.sh wrote "options vendor-reset device_specific=1" here. That
+# parameter does not exist in vendor-reset 0.1.1 -- "modinfo -p vendor-reset"
+# lists only install_hook -- and the kernel logs
+# "unknown parameter 'device_specific' ignored" on every load. So the default
+# is now no options at all, and the file is removed rather than left lying
+# around with dead settings in it.
+- name: vendor_reset | Module options
   ansible.builtin.copy:
-    dest: /etc/modprobe.d/vendor-reset.conf
+    dest: "{{ vendor_reset_modprobe_conf }}"
     content: |
       # Managed by proxmox-homelab (ansible) - do not edit by hand
-      options vendor-reset device_specific=1
+      options vendor-reset {{ vendor_reset_module_options }}
     owner: root
     group: root
     mode: "0644"
+  when: vendor_reset_module_options | length > 0
+  notify: pve_update_initramfs
+
+- name: vendor_reset | Drop the options file when there are no options
+  ansible.builtin.file:
+    path: "{{ vendor_reset_modprobe_conf }}"
+    state: absent
+  when: vendor_reset_module_options | length == 0
   notify: pve_update_initramfs

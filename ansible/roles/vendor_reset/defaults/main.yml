@@ -10,3 +10,13 @@ vendor_reset_prereqs:
   - git
   - dkms
   - build-essential
+
+# Force a clean re-clone, re-patch and re-register even when DKMS already has
+# the module registered. Needed when upstream changes or one of the patches
+# stops applying; a plain kernel upgrade does NOT need this.
+vendor_reset_force_rebuild: false
+
+# Extra modprobe options, e.g. "install_hook=1". Empty means no options file.
+# Check what actually exists with:  modinfo -p vendor-reset
+vendor_reset_module_options: ""
+vendor_reset_modprobe_conf: /etc/modprobe.d/vendor-reset.conf
