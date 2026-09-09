@@ -1,8 +1,13 @@
 terraform {
+  required_version = ">= 1.5"
+
   required_providers {
     proxmox = {
-      source  = "bpg/proxmox"
-      version = "0.60.0"
+      source = "bpg/proxmox"
+      # 0.60.0 was pinned here before. It rejects decompression_algorithm =
+      # "bz2", which the OPNsense installer download needs (Proxmox itself has
+      # supported bz2 for a long time - the limit was the provider).
+      version = "~> 0.112"
     }
   }
 }

@@ -41,31 +41,31 @@ resource "proxmox_virtual_environment_vm" "ubuntu_server" {
   node_name   = var.node_name
   vm_id       = var.vm_id
   description = "Ubuntu Server VM (8GB RAM)"
-  
+
   cpu {
     cores = 2
     type  = "x86-64-v2-AES"
   }
-  
+
   memory {
     dedicated = 8192
   }
-  
+
   disk {
     datastore_id = "local-lvm"
     file_id      = var.iso_file_id
     interface    = "scsi0"
     size         = 120
   }
-  
+
   operating_system {
     type = "l26"
   }
-  
+
   network_device {
     bridge = var.network_bridge
   }
-  
+
   initialization {
     ip_config {
       ipv4 {

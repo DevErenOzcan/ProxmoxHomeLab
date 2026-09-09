@@ -34,6 +34,9 @@
     msg: >-
       vendor-reset is not installed for {{ ansible_kernel }}. On a real run,
       {{ vendor_reset_repo }} would be cloned, patched and built with DKMS.
+  # Reported as changed on purpose: a real run WOULD rebuild here, and a dry
+  # run whose recap says changed=0 reads as "already converged".
+  changed_when: true
   when:
     - "'installed' not in (vendor_reset_dkms_status.stdout | default(''))"
     - ansible_check_mode

@@ -36,10 +36,16 @@ ENV_FILE="${ENV_FILE:-$REPO_DIR/.env}"
 REMOTE_STAGE="/tmp/.proxmox-homelab-stage"
 WATCH_INTERVAL="${WATCH_INTERVAL:-2}"
 
-# ansible/ is mirrored exactly (--delete). The other paths are only overwritten,
-# so terraform state created on the host is never deleted.
-MIRROR_PATH="ansible"
-COPY_PATHS="terraform bootstrap.sh run_vms.sh README.md"
+# ansible/ and terraform/ are mirrored exactly (--delete), so deleting a file
+# locally also removes it on the host. Without that, a removed .tf file lingers
+# there and Terraform sees duplicate resources.
+#
+# STATE_EXCLUDES protects everything Terraform generates on the host. rsync does
+# not delete excluded files (that would take --delete-excluded), so state, the
+# provider lock file and tfvars survive every sync.
+MIRROR_PATHS="ansible terraform"
+COPY_PATHS="bootstrap.sh run_vms.sh README.md"
+STATE_EXCLUDES="--exclude=.terraform/ --exclude=.terraform.lock.hcl --exclude=*.tfstate --exclude=*.tfstate.* --exclude=*.tfvars --exclude=*.tfplan"
 
 GREEN=$'\033[0;32m'; YELLOW=$'\033[1;33m'; RED=$'\033[0;31m'
 BLUE=$'\033[0;36m';  NC=$'\033[0m'
@@ -122,7 +128,12 @@ find $REMOTE_STAGE -type f \\( -name '*.yml' -o -name '*.yaml' -o -name '*.cfg' 
      -exec sed -i 's/\\r\$//' {} +
 
 mkdir -p $STATE_DIR
-rsync -a --delete $REMOTE_STAGE/$MIRROR_PATH/ $STATE_DIR/$MIRROR_PATH/
+for m in $MIRROR_PATHS; do
+    if [ -d "$REMOTE_STAGE/\$m" ]; then
+        mkdir -p "$STATE_DIR/\$m"
+        rsync -a --delete $STATE_EXCLUDES "$REMOTE_STAGE/\$m/" "$STATE_DIR/\$m/"
+    fi
+done
 for p in $COPY_PATHS; do
     if [ -e "$REMOTE_STAGE/\$p" ]; then rsync -a "$REMOTE_STAGE/\$p" $STATE_DIR/; fi
 done
@@ -138,7 +149,7 @@ REMOTE_EOF
 push() {
     local paths=()
     local p
-    for p in $MIRROR_PATH $COPY_PATHS; do
+    for p in $MIRROR_PATHS $COPY_PATHS; do
         if [ -e "$REPO_DIR/$p" ]; then paths+=("$p"); fi
     done
     [ ${#paths[@]} -gt 0 ] || die "Nothing to push."
@@ -169,8 +180,17 @@ run_playbook() {
     pssh "cd $STATE_DIR/ansible && ansible-playbook site.yml $extra$(passthru_args)"
 }
 
+# The directories --watch keeps an eye on.
+mirror_dirs() {
+    local p
+    for p in $MIRROR_PATHS; do
+        if [ -d "$REPO_DIR/$p" ]; then printf '%s ' "$REPO_DIR/$p"; fi
+    done
+}
+
 tree_signature() {
-    find "$REPO_DIR/$MIRROR_PATH" -type f -print0 2>/dev/null \
+    # shellcheck disable=SC2046
+    find $(mirror_dirs) -type f -print0 2>/dev/null \
         | sort -z | xargs -0 md5sum 2>/dev/null | md5sum | cut -d' ' -f1
 }
 
@@ -212,7 +232,7 @@ do_action() {
 }
 
 if [ "$WATCH" -eq 1 ]; then
-    say "Watching: $REPO_DIR/$MIRROR_PATH  (Ctrl+C to stop)"
+    say "Watching: $MIRROR_PATHS under $REPO_DIR  (Ctrl+C to stop)"
     last=""
     while true; do
         cur="$(tree_signature)"

@@ -56,15 +56,40 @@ base_packages_abi_kernel_headers: true
 terraform_install: true
 terraform_apt_suite: "{{ ansible_distribution_release }}"
 
-# --- Network bridge ---------------------------------------------------------
-# terraform/environments/local/main.tf attaches its VMs to vmbr1.
+# --- Network bridges -------------------------------------------------------
+# The internal segments the OPNsense firewall routes between. All of them are
+# port-less: no physical NIC, and deliberately NO IP on the host either -- if
+# the host had an address here it would become a second path into the segments
+# and bypass the firewall.
+#
+# The host itself stays on vmbr0 / 192.168.1.200 on purpose: if the firewall VM
+# dies, the Proxmox web UI is still reachable from the home network.
+#
+# Keep in step with terraform/environments/local/locals.tf, which assigns the
+# addresses inside these segments.
+#
+#   vmbr0  192.168.1.0/24   home network + Proxmox host + firewall WAN (exists)
+#   vmbr1  10.10.10.0/24    LAN  - trusted guests
+#   vmbr2  10.10.20.0/24    DMZ  - Cloudflare-facing services + cloudflared
+#   vmbr3  10.10.30.0/24    LAB  - experiments, quarantine
+#
 network_bridge_enabled: true
 network_bridge_reload: true
 network_bridges:
   - name: vmbr1
-    comment: "Isolated Home Lab bridge (no physical port, VM-to-VM only)"
+    comment: "LAN 10.10.10.0/24 - trusted guests, gateway 10.10.10.1 on OPNsense vtnet1"
     ports: "none"
-    stp: "off"     # NOTE: the quotes matter -- YAML turns off/on/no/yes into booleans
+    stp: "off"     # NOTE: quotes required -- YAML turns bare off/on/no/yes into booleans
+    fd: 0
+  - name: vmbr2
+    comment: "DMZ 10.10.20.0/24 - internet-facing services + cloudflared, gateway 10.10.20.1 on vtnet2"
+    ports: "none"
+    stp: "off"
+    fd: 0
+  - name: vmbr3
+    comment: "LAB 10.10.30.0/24 - experiments and quarantine, gateway 10.10.30.1 on vtnet3"
+    ports: "none"
+    stp: "off"
     fd: 0
 
 # --- GPU passthrough (bootstrap [4/10] - [7/10]) ----------------------------

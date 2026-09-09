@@ -143,7 +143,7 @@ To stop reading the password on every run, install a key:
 bootstrap.sh                 Installs ansible on the host + places the state. Nothing else.
 sync.sh                      Local → host transfer (--check / --run / --watch / --bootstrap)
 sync.ps1                     PowerShell wrapper (delegates to sync.sh)
-run_vms.sh                   Brings the VMs up with Terraform
+run_vms.sh                   Runs Terraform on the host (--plan / --guests / --auto)
 
 ansible/
   ansible.cfg                Default inventory, roles_path
@@ -157,7 +157,7 @@ ansible/
       pve1.yml               Overrides that apply to pve1 only
   playbooks/
     10-base.yml              repositories + packages + terraform
-    20-network.yml           the vmbr1 bridge
+    20-network.yml           the vmbr1 / vmbr2 / vmbr3 bridges
     30-gpu.yml               GPU passthrough + vendor-reset (one play on purpose)
     40-laptop.yml            lid behaviour
     99-reboot.yml            reboots when one is pending (on by default)
@@ -166,15 +166,30 @@ ansible/
     pve_repos/               disable enterprise repos, add no-subscription
     base_packages/           dist-upgrade, base packages, kernel header selection
     terraform/               HashiCorp repository + terraform package
-    network_bridge/          vmbr1 (the Terraform modules attach to it)
+    network_bridge/          LAN / DMZ / LAB bridges the guests attach to
     gpu_passthrough/         IOMMU + VFIO + blacklist + vfio-pci bind
     vendor_reset/            DKMS module for the AMD reset bug
     laptop_lid/              logind lid settings
 
 terraform/
-  environments/local/        Environment-specific main.tf / provider.tf / variables.tf
-  modules/                   router, ubuntu_server, ubuntu_desktop, windows_11
+  environments/local/
+    locals.tf                * THE network plan - subnets, gateways, static addresses
+    provider.tf              bpg/proxmox ~> 0.112
+    variables.tf             OPNsense version/checksum, sizing, ISO URLs, create_guests
+    isos.tf                  installer downloads (Proxmox fetches them, not this machine)
+    firewall.tf              the OPNsense instance
+    vms.tf                   guest VMs, gated behind create_guests
+    outputs.tf               interface map, addresses, the static route to add
+  modules/
+    opnsense/                firewall VM: WAN + LAN + DMZ + LAB, boots first
+    ubuntu_server/           see the KNOWN ISSUE note in vms.tf
+    ubuntu_desktop/
+    windows_11/
 ```
+
+The network design, the firewall rules and the OPNsense post-install runbook
+live in [docs/network.md](docs/network.md). Read that before the first
+`terraform apply`.
 
 > Why is `group_vars` under `inventory/`? The playbooks live in the
 > `playbooks/` subdirectory, and Ansible looks for playbook-adjacent
@@ -245,10 +260,16 @@ gpu_passthrough_pci_ids:        # [vendor:device] pairs from lspci -nn
 
 gpu_passthrough_grub_cmdline: "quiet amd_iommu=on iommu=pt pcie_acs_override=downstream,multifunction"
 
-network_bridges:                # the Terraform VMs attach to vmbr1
-  - name: vmbr1
+network_bridges:                # LAN / DMZ / LAB - see docs/network.md
+  - name: vmbr1                 # LAN 10.10.10.0/24, trusted guests
     ports: "none"
     stp: "off"                  # quotes matter: YAML turns off/on/no/yes into booleans
+  - name: vmbr2                 # DMZ 10.10.20.0/24, Cloudflare-facing + cloudflared
+    ports: "none"
+    stp: "off"
+  - name: vmbr3                 # LAB 10.10.30.0/24, experiments and quarantine
+    ports: "none"
+    stp: "off"
 
 base_packages_dist_upgrade: true
 terraform_install: true
@@ -263,26 +284,40 @@ To disable a role entirely: `gpu_passthrough_enabled: false`,
 
 ---
 
-## Virtual machines with Terraform
+## The firewall and the guests, with Terraform
 
-Once the host is ready (`pve-state` has run, and it has been rebooted if
-needed), the VMs are created with Terraform.
+Everything the guests do routes through an OPNsense firewall on its own VM.
+The host itself stays on the home network so a broken firewall never costs you
+the Proxmox UI. Full design, firewall rules and post-install steps:
+**[docs/network.md](docs/network.md)**.
+
+Order matters, because the bridges are host state and the guests need a
+gateway that exists:
 
 ```bash
-cd terraform/environments/local
-terraform init
-terraform plan
-terraform apply
+./sync.sh --run --tags network
 ```
 
-Or in one command on the host:
+Then on the host - `./sync.sh --shell` gets you there:
 
 ```bash
 /opt/proxmox-homelab/run_vms.sh
 ```
 
-The Windows 11 ISO link in `main.tf` expires 24 hours after Microsoft issues
-it; if the download fails, replace that URL with a fresh one.
+That creates the OPNsense ISO download and the firewall VM, and nothing else.
+Install OPNsense from the Proxmox console, follow docs/network.md, add the one
+static route it tells you to, and only then:
+
+```bash
+/opt/proxmox-homelab/run_vms.sh --guests
+```
+
+`terraform output` prints the interface map, every address and the static route
+line, so none of it has to be memorised.
+
+The Windows guest is skipped unless you set `windows_11_iso_url` - Microsoft's
+evaluation links expire about 24 hours after they are issued, so no committed
+default can work.
 
 ---
 
