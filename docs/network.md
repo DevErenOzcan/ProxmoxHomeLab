@@ -81,21 +81,34 @@ your head.
 
 ## Order of operations
 
-```bash
-./sync.sh --run --tags network        # 1. create vmbr1 / vmbr2 / vmbr3
-```
+Both steps run from your own machine; neither needs a login on the host.
+
+**1. Create the bridges** — host OS state, so this is Ansible's job:
 
 ```bash
-cd /opt/proxmox-homelab/terraform/environments/local && terraform apply
+./state_push_ansible.sh --tags network
 ```
 
-Step 2 creates only the OPNsense ISO download and the firewall VM — the guest
-VMs are gated behind `create_guests`, which defaults to `false`, because a
-guest booted before the firewall exists has no gateway.
+**2. Create the firewall VM:**
 
-3. Install and configure OPNsense (below).
-4. Add the static route on the home router.
-5. `terraform apply -var create_guests=true`
+```bash
+./state_push_terraform.sh
+```
+
+This creates only the OPNsense ISO download and the firewall VM. The guest VMs
+are gated behind `create_guests`, which defaults to `false`, because a guest
+booted before the firewall exists has no gateway.
+
+**3. Install and configure OPNsense** — the sections below. This part is
+manual: OPNsense has no unattended installer.
+
+**4. Add the static route** on the home router.
+
+**5. Create the guests:**
+
+```bash
+./state_push_terraform.sh --guests
+```
 
 ## Installing OPNsense
 
@@ -314,6 +327,6 @@ The guests lose all connectivity — that is by design. What you keep:
 - `https://192.168.1.200:8006` — the Proxmox UI, on the home network
 - The OPNsense console through that UI, including `pfctl -d` if you have locked
   yourself out of the web UI
-- SSH to the Proxmox host, and `./sync.sh --shell` from this repo
+- SSH to the Proxmox host, and `./state_push_ansible.sh --shell` from this repo
 
 Nothing about recovering the firewall depends on the firewall.

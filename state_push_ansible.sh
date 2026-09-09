@@ -1,210 +1,109 @@
 #!/usr/bin/env bash
 #
-# Mirrors the local ansible state onto the Proxmox host over SSH.
+# Applies the ANSIBLE state to the Proxmox host, from here -- no need to log in
+# to the host first.
 #
-# Ansible does not run on Windows, so the model is not "run ansible against the
-# host" but "push the state to the host and let ansible run there".
-# The transfer uses tar+ssh over a single connection (no local rsync required),
-# and the host side mirrors it exactly with rsync --delete.
+# Ansible cannot act as a control node on Windows, so the model is not "run
+# ansible against the host" but "push the state to the host and let ansible run
+# there against itself". The transfer is one tar+ssh connection (no local rsync
+# needed); the host side mirrors the tree with rsync --delete.
 #
 # USAGE
-#   ./sync.sh                    Push only
-#   ./sync.sh --check            Push + dry run (--check --diff)
-#   ./sync.sh --run              Push + apply site.yml
-#   ./sync.sh --run --tags gpu   Extra arguments are passed to ansible-playbook
-#   ./sync.sh --watch --check    Push + dry run automatically on every change
-#   ./sync.sh --bootstrap        Push + run bootstrap.sh on the host (first-time setup)
-#   ./sync.sh --bootstrap --apply   ...and apply site.yml right after
-#   ./sync.sh --shell            Open a shell on the host
-#   ./sync.sh --install-key      Set up key-based SSH so no password is needed
+#   ./state_push_ansible.sh                  Push AND apply site.yml
+#   ./state_push_ansible.sh --check          Push + dry run, change nothing
+#   ./state_push_ansible.sh --push           Push only, run nothing
+#   ./state_push_ansible.sh --tags gpu       Extra arguments go to ansible-playbook
+#   ./state_push_ansible.sh --watch          Re-check automatically on every edit
+#   ./state_push_ansible.sh --watch --run    ...and apply on every edit
+#   ./state_push_ansible.sh --bootstrap      First-time setup (installs ansible)
+#   ./state_push_ansible.sh --shell          Open a shell on the host
+#   ./state_push_ansible.sh --install-key    Key-based SSH, so no password prompts
 #
-# SETTINGS (override with environment variables)
+# Applying is the default. site.yml is idempotent, so a converge with nothing to
+# do is a no-op -- but note that a change to GRUB, kernel modules or the
+# initramfs reboots the host, because pve_reboot_after_converge defaults to
+# true. To apply without that:
+#
+#   ./state_push_ansible.sh -e pve_reboot_after_converge=false
+#
+# Terraform has its own entry point: ./state_push_terraform.sh
+#
+# SETTINGS (environment variables)
 #   PVE_HOST=192.168.1.200  PVE_USER=root  STATE_DIR=/opt/proxmox-homelab
+#   WATCH_INTERVAL=2  PLAYBOOK=site.yml
 #
 # AUTHENTICATION
-#   An SSH key is tried first. Without one, the proxmox_passwd value from the
-#   repository's .env is used via SSH_ASKPASS; the password never reaches the
-#   command line or ps output.
+#   An SSH key is tried first. Without one, proxmox_passwd from .env is fed to
+#   ssh through SSH_ASKPASS; the password never reaches argv or ps output.
 #
 set -euo pipefail
 
-PVE_HOST="${PVE_HOST:-192.168.1.200}"
-PVE_USER="${PVE_USER:-root}"
-STATE_DIR="${STATE_DIR:-/opt/proxmox-homelab}"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENV_FILE="${ENV_FILE:-$REPO_DIR/.env}"
-REMOTE_STAGE="/tmp/.proxmox-homelab-stage"
+# shellcheck source=lib/push.sh
+. "$REPO_DIR/lib/push.sh"
+
 WATCH_INTERVAL="${WATCH_INTERVAL:-2}"
+PLAYBOOK="${PLAYBOOK:-site.yml}"
 
-# ansible/ and terraform/ are mirrored exactly (--delete), so deleting a file
-# locally also removes it on the host. Without that, a removed .tf file lingers
-# there and Terraform sees duplicate resources.
-#
-# STATE_EXCLUDES protects everything Terraform generates on the host. rsync does
-# not delete excluded files (that would take --delete-excluded), so state, the
-# provider lock file and tfvars survive every sync.
-MIRROR_PATHS="ansible terraform"
-COPY_PATHS="bootstrap.sh run_vms.sh README.md"
-STATE_EXCLUDES="--exclude=.terraform/ --exclude=.terraform.lock.hcl --exclude=*.tfstate --exclude=*.tfstate.* --exclude=*.tfvars --exclude=*.tfplan"
-
-GREEN=$'\033[0;32m'; YELLOW=$'\033[1;33m'; RED=$'\033[0;31m'
-BLUE=$'\033[0;36m';  NC=$'\033[0m'
-say()  { printf '%s%s%s\n' "$GREEN"  "$*" "$NC"; }
-warn() { printf '%s%s%s\n' "$YELLOW" "$*" "$NC"; }
-info() { printf '%s%s%s\n' "$BLUE"   "$*" "$NC"; }
-die()  { printf '%sERROR: %s%s\n' "$RED" "$*" "$NC" >&2; exit 1; }
-usage() { sed -n '3,27p' "${BASH_SOURCE[0]}" | sed 's/^#\{1,\} \{0,1\}//'; }
+usage() { sed -n '3,38p' "${BASH_SOURCE[0]}" | sed 's/^#\{1,\} \{0,1\}//'; }
 
 # --------------------------------------------------------------------------
 # Arguments
 # --------------------------------------------------------------------------
 WATCH=0
-ACTION="push"
+ACTION="run"   # applying is the default
+ACTION_SET=0
 PASSTHRU=()
 while [ $# -gt 0 ]; do
     case "$1" in
-        -w|--watch)     WATCH=1 ;;
-        -r|--run)       ACTION="run" ;;
-        -c|--check)     ACTION="check" ;;
-        -b|--bootstrap) ACTION="bootstrap" ;;
-        --install-key)  ACTION="install-key" ;;
-        --shell)        ACTION="shell" ;;
-        -h|--help)      usage; exit 0 ;;
-        --)             shift; PASSTHRU+=("$@"); break ;;
-        *)              PASSTHRU+=("$1") ;;
+        -w | --watch)               WATCH=1 ;;
+        -r | --run)                 ACTION="run";       ACTION_SET=1 ;;
+        -c | --check)               ACTION="check";     ACTION_SET=1 ;;
+        -n | --push | --no-apply)   ACTION="push";      ACTION_SET=1 ;;
+        -b | --bootstrap)           ACTION="bootstrap"; ACTION_SET=1 ;;
+        --install-key)              ACTION="install-key"; ACTION_SET=1 ;;
+        --shell)                    ACTION="shell";     ACTION_SET=1 ;;
+        -h | --help)                usage; exit 0 ;;
+        --)                         shift; PASSTHRU+=("$@"); break ;;
+        *)                          PASSTHRU+=("$1") ;;
     esac
     shift
 done
 
-# --------------------------------------------------------------------------
-# SSH authentication
-# --------------------------------------------------------------------------
-SSH_OPTS=(-o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -o LogLevel=ERROR)
-ASKPASS_FILE=""
-cleanup() { if [ -n "$ASKPASS_FILE" ]; then rm -f "$ASKPASS_FILE"; fi; }
-trap cleanup EXIT
-
-setup_auth() {
-    if ssh "${SSH_OPTS[@]}" -o BatchMode=yes "$PVE_USER@$PVE_HOST" true 2>/dev/null; then
-        info "Authentication: SSH key"
-        return
-    fi
-    [ -f "$ENV_FILE" ] || die "$ENV_FILE is missing and SSH key auth does not work. Try './sync.sh --install-key'."
-    grep -q '^proxmox_passwd=' "$ENV_FILE" || die "$ENV_FILE has no 'proxmox_passwd=' line."
-
-    ASKPASS_FILE="$(mktemp)"
-    {
-        printf '%s\n' '#!/bin/sh'
-        printf '%s\n' '# Reads the password from its source; never copies it anywhere.'
-        printf '%s\n' 'sed -n "s/^proxmox_passwd=//p" "$PVE_ENV_FILE" | tr -d "\r\n"'
-    } > "$ASKPASS_FILE"
-    chmod 700 "$ASKPASS_FILE"
-    export PVE_ENV_FILE="$ENV_FILE"
-    export SSH_ASKPASS="$ASKPASS_FILE"
-    export SSH_ASKPASS_REQUIRE=force
-    export DISPLAY="${DISPLAY:-:0}"
-    SSH_OPTS+=(-o PreferredAuthentications=password -o PubkeyAuthentication=no)
-    info "Authentication: password from .env"
-}
-
-pssh() { ssh "${SSH_OPTS[@]}" "$PVE_USER@$PVE_HOST" "$@"; }
-
-# --------------------------------------------------------------------------
-# Push
-# --------------------------------------------------------------------------
-# The unpack script that runs on the host. Unquoted heredoc: $VAR expands here,
-# \$VAR is left for the remote shell.
-remote_unpack_script() {
-    cat <<REMOTE_EOF
-set -e
-rm -rf $REMOTE_STAGE
-mkdir -p $REMOTE_STAGE
-tar -xzf - --no-same-owner --no-same-permissions -C $REMOTE_STAGE
-
-# Strip CRLF line endings coming from Windows. Otherwise shell scripts on the
-# host fail with 'bad interpreter' and ansible writes CRLF into config files.
-find $REMOTE_STAGE -type f \\( -name '*.yml' -o -name '*.yaml' -o -name '*.cfg' \\
-     -o -name '*.j2' -o -name '*.sh' -o -name '*.md' -o -name '*.tf' \\) \\
-     -exec sed -i 's/\\r\$//' {} +
-
-mkdir -p $STATE_DIR
-for m in $MIRROR_PATHS; do
-    if [ -d "$REMOTE_STAGE/\$m" ]; then
-        mkdir -p "$STATE_DIR/\$m"
-        rsync -a --delete $STATE_EXCLUDES "$REMOTE_STAGE/\$m/" "$STATE_DIR/\$m/"
-    fi
-done
-for p in $COPY_PATHS; do
-    if [ -e "$REMOTE_STAGE/\$p" ]; then rsync -a "$REMOTE_STAGE/\$p" $STATE_DIR/; fi
-done
-# Ownership from Windows is meaningless here, and ansible ignores ansible.cfg
-# when the directory is not owned by the user running it.
-chown -R root:root $STATE_DIR
-if [ -f $STATE_DIR/bootstrap.sh ]; then chmod +x $STATE_DIR/bootstrap.sh; fi
-if [ -f $STATE_DIR/run_vms.sh ]; then chmod +x $STATE_DIR/run_vms.sh; fi
-rm -rf $REMOTE_STAGE
-REMOTE_EOF
-}
-
-push() {
-    local paths=()
-    local p
-    for p in $MIRROR_PATHS $COPY_PATHS; do
-        if [ -e "$REPO_DIR/$p" ]; then paths+=("$p"); fi
-    done
-    [ ${#paths[@]} -gt 0 ] || die "Nothing to push."
-
-    tar -C "$REPO_DIR" -czf - \
-        --exclude=.git --exclude=.env --exclude=.idea \
-        --exclude=.terraform --exclude='*.tfstate' --exclude='*.tfstate.backup' \
-        --exclude='*.retry' --exclude=__pycache__ \
-        "${paths[@]}" \
-    | pssh "$(remote_unpack_script)"
-    say "-> $PVE_USER@$PVE_HOST:$STATE_DIR updated ($(date +%H:%M:%S))"
-}
-
-# Unrecognised arguments are forwarded verbatim, safely quoted.
-passthru_args() {
-    local args=""
-    local a
-    if [ ${#PASSTHRU[@]} -gt 0 ]; then
-        for a in "${PASSTHRU[@]}"; do
-            args="$args $(printf '%q' "$a")"
-        done
-    fi
-    printf '%s' "$args"
-}
+# Watching means "on every save". Inheriting the apply default there would
+# converge - and possibly reboot the host - every time an editor writes a file.
+# So watching alone dry-runs; ask for --run explicitly if that is what you want.
+if [ "$WATCH" -eq 1 ] && [ "$ACTION_SET" -eq 0 ]; then
+    ACTION="check"
+fi
 
 run_playbook() {
     local extra="$1"
-    pssh "cd $STATE_DIR/ansible && ansible-playbook site.yml $extra$(passthru_args)"
+    local args=""
+    if [ ${#PASSTHRU[@]} -gt 0 ]; then args="$(quote_args "${PASSTHRU[@]}")"; fi
+    pssh "cd $STATE_DIR/ansible && ansible-playbook $PLAYBOOK $extra$args"
 }
 
-# The directories --watch keeps an eye on.
-mirror_dirs() {
-    local p
-    for p in $MIRROR_PATHS; do
-        if [ -d "$REPO_DIR/$p" ]; then printf '%s ' "$REPO_DIR/$p"; fi
-    done
-}
-
-tree_signature() {
-    # shellcheck disable=SC2046
-    find $(mirror_dirs) -type f -print0 2>/dev/null \
-        | sort -z | xargs -0 md5sum 2>/dev/null | md5sum | cut -d' ' -f1
-}
-
-install_key() {
-    local key="$HOME/.ssh/id_ed25519"
-    if [ ! -f "$key" ]; then
-        warn "Generating an SSH key: $key"
-        mkdir -p "$HOME/.ssh"
-        chmod 700 "$HOME/.ssh"
-        ssh-keygen -t ed25519 -N "" -C "proxmox-homelab" -f "$key"
-    fi
-    warn "Installing the public key on $PVE_USER@$PVE_HOST..."
-    cat "$key.pub" | pssh 'mkdir -p /root/.ssh; chmod 700 /root/.ssh; touch /root/.ssh/authorized_keys; K=$(cat); if ! grep -qxF "$K" /root/.ssh/authorized_keys; then echo "$K" >> /root/.ssh/authorized_keys; fi'
-    say "Key installed. From now on sync runs without a password."
+do_action() {
+    case "$ACTION" in
+        push)
+            info "Push only. Nothing was applied; add --run or drop --push."
+            ;;
+        check)
+            info "Dry run (--check --diff)..."
+            run_playbook "--check --diff"
+            ;;
+        run)
+            warn "Applying $PLAYBOOK..."
+            run_playbook ""
+            ;;
+        bootstrap)
+            local args=""
+            if [ ${#PASSTHRU[@]} -gt 0 ]; then args="$(quote_args "${PASSTHRU[@]}")"; fi
+            warn "Running bootstrap.sh on the host..."
+            pssh "bash $STATE_DIR/bootstrap.sh$args"
+            ;;
+    esac
 }
 
 # --------------------------------------------------------------------------
@@ -213,26 +112,15 @@ install_key() {
 setup_auth
 
 case "$ACTION" in
-    install-key)
-        install_key
-        exit 0
-        ;;
-    shell)
-        exec ssh "${SSH_OPTS[@]}" -t "$PVE_USER@$PVE_HOST" "cd $STATE_DIR/ansible 2>/dev/null; exec bash -l"
-        ;;
+    install-key) install_key; exit 0 ;;
+    shell)       open_shell "$STATE_DIR/ansible" ;;
 esac
-
-do_action() {
-    case "$ACTION" in
-        push)      : ;;
-        check)     info "Dry run (--check --diff)..."; run_playbook "--check --diff" ;;
-        run)       warn "Applying site.yml..."; run_playbook "" ;;
-        bootstrap) warn "Running bootstrap.sh..."; pssh "bash $STATE_DIR/bootstrap.sh$(passthru_args)" ;;
-    esac
-}
 
 if [ "$WATCH" -eq 1 ]; then
     say "Watching: $MIRROR_PATHS under $REPO_DIR  (Ctrl+C to stop)"
+    if [ "$ACTION" = "check" ]; then
+        info "Dry-running on every change. Use --watch --run to apply instead."
+    fi
     last=""
     while true; do
         cur="$(tree_signature)"

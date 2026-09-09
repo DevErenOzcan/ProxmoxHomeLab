@@ -143,7 +143,7 @@ laptop_lid_restart_logind: true
 # no-change run never reboots.
 #
 # To skip the reboot for one run:
-#   ./sync.sh --run -e pve_reboot_after_converge=false
+#   ./state_push_ansible.sh -e pve_reboot_after_converge=false
 pve_reboot_after_converge: true
 # shutdown -r +N : gives open sessions N minutes' notice.
 pve_reboot_delay_minutes: 1

@@ -18,7 +18,7 @@ Windows (this repo)              Proxmox host (192.168.1.200)
 ───────────────────              ────────────────────────────
 edit ansible/
         │
-        │  ./sync.sh   (tar + ssh, single connection)
+        │  ./state_push_*.sh   (tar + ssh, single connection)
         ▼
                                  /opt/proxmox-homelab/ansible
                                          │
@@ -32,6 +32,17 @@ Ansible runs **on** the host. The Windows side only pushes files. The transfer
 uses `tar | ssh` (no local `rsync` required) and the host side mirrors the tree
 exactly with `rsync --delete`.
 
+Terraform works the same way, for a different reason: its endpoint is the
+host's own loopback, so the Proxmox API never leaves the box. Two entry points,
+one shared transport in `lib/push.sh`:
+
+| Script | Drives | Applies |
+|---|---|---|
+| `./state_push_ansible.sh` | Ansible | Host OS state: repos, packages, bridges, GPU, lid |
+| `./state_push_terraform.sh` | Terraform | Guests: the firewall VM and the VMs behind it |
+
+Neither one needs you to log in to the host.
+
 ---
 
 ## Quick start
@@ -39,7 +50,7 @@ exactly with `rsync --delete`.
 ### 1. First-time setup (once)
 
 ```bash
-./sync.sh --bootstrap
+./state_push_ansible.sh --bootstrap
 ```
 
 This pushes the files to the host, runs `bootstrap.sh` there, installs
@@ -52,18 +63,27 @@ settings all live in Ansible roles now.
 ### 2. See what would change (changes nothing)
 
 ```bash
-./sync.sh --check
+./state_push_ansible.sh --check
 ```
 
-### 3. Apply
+### 3. Apply the host state
 
 ```bash
-./sync.sh --run
+./state_push_ansible.sh
 ```
+
+### 3b. Apply the guests
+
+```bash
+./state_push_terraform.sh
+```
+
+It plans first, shows you the plan, then asks. Read
+[docs/network.md](docs/network.md) before the first one.
 
 ### 4. Reboot
 
-`./sync.sh --run` reboots the host by itself when a reboot is pending — that is,
+`./state_push_ansible.sh` reboots the host by itself when a reboot is pending — that is,
 when something left `/run/reboot-required` behind: GRUB, kernel modules, the
 initramfs, or a new kernel from `dist-upgrade`. A converge that changes nothing
 never reboots.
@@ -75,24 +95,50 @@ change your mind.
 To apply without rebooting:
 
 ```bash
-./sync.sh --run -e pve_reboot_after_converge=false
+./state_push_ansible.sh -e pve_reboot_after_converge=false
 ```
 
 ---
 
 ## Day-to-day use
 
-| Command | What it does |
-|---|---|
-| `./sync.sh` | Push only |
-| `./sync.sh --check` | Push + dry run (`--check --diff`) |
-| `./sync.sh --run` | Push + apply `site.yml` |
-| `./sync.sh --run --tags gpu` | Extra arguments are passed to `ansible-playbook` |
-| `./sync.sh --watch --check` | Push + dry run automatically on every change |
-| `./sync.sh --shell` | Open a shell on the host (in `/opt/proxmox-homelab/ansible`) |
-| `./sync.sh --install-key` | Set up key-based SSH so no password is needed (once) |
+**Ansible** — `./state_push_ansible.sh`:
 
-The same from PowerShell: `.\sync.ps1 --check` (it delegates to Git Bash).
+| Argument | What it does |
+|---|---|
+| (none) | Push **and apply** `site.yml` |
+| `--check` | Push + dry run (`--check --diff`), change nothing |
+| `--push` | Push only, run nothing |
+| `--tags gpu` | Unrecognised arguments are passed to `ansible-playbook` |
+| `--watch` | Dry-run automatically on every change |
+| `--watch --run` | ...apply on every change instead |
+| `--bootstrap` | First-time setup: installs ansible on the host |
+| `--shell` | Open a shell on the host |
+| `--install-key` | Set up key-based SSH so no password is needed (once) |
+
+Applying is the default, so the everyday loop is just `./state_push_ansible.sh`.
+`site.yml` is idempotent, so a converge with nothing to do is a no-op — but a
+change to GRUB, kernel modules or the initramfs reboots the host. To skip that
+for one run, add `-e pve_reboot_after_converge=false`.
+
+`--watch` is the one exception to the apply-by-default rule: inheriting it there
+would converge, and possibly reboot, every time your editor saves a file. So
+watching alone dry-runs, and you ask for `--watch --run` explicitly.
+
+**Terraform** — `./state_push_terraform.sh`:
+
+| Argument | What it does |
+|---|---|
+| (none) | Push, plan, ask, apply |
+| `--plan` | Push and plan only |
+| `--guests` | Include the guest VMs, not just the firewall |
+| `--auto` | Apply without asking |
+| `--output` | Print the terraform outputs |
+| `--destroy` | Tear it down (asks twice) |
+| `--no-push` | Use whatever is already on the host |
+
+Unrecognised arguments go straight to `terraform`, so
+`./state_push_terraform.sh --plan -target=module.firewall` works.
 
 On the host itself:
 
@@ -108,31 +154,36 @@ pve-state --tags gpu          # one part only
 as anything changes:
 
 ```bash
-./sync.sh --watch --check     # edit → save → see the plan
-./sync.sh --watch --run       # edit → save → apply
+./state_push_ansible.sh --watch             # edit → save → see the plan
 ```
 
-Interval: `WATCH_INTERVAL=5 ./sync.sh --watch`.
+```bash
+./state_push_ansible.sh --watch --run       # edit → save → apply
+```
+
+Interval: `WATCH_INTERVAL=5 ./state_push_ansible.sh --watch`.
 
 ### Settings
 
 Override with environment variables:
 
 ```bash
-PVE_HOST=192.168.1.201 ./sync.sh --check
-STATE_DIR=/srv/homelab ./sync.sh
+PVE_HOST=192.168.1.201 ./state_push_ansible.sh --check
+STATE_DIR=/srv/homelab ./state_push_terraform.sh --plan
 ```
 
 ### Authentication
 
-`sync.sh` tries an SSH key first. Without one it uses the `proxmox_passwd`
+Both scripts try an SSH key first. Without one they use the `proxmox_passwd`
 value from the repository's `.env` via `SSH_ASKPASS` — the password never
-reaches the command line or `ps` output. `.env` is not committed.
+reaches the command line or `ps` output. `.env` is not committed, and it is
+never copied to the host either: Terraform gets the password on the remote
+process's stdin, so it stays off the host's disk.
 
 To stop reading the password on every run, install a key:
 
 ```bash
-./sync.sh --install-key
+./state_push_ansible.sh --install-key
 ```
 
 ---
@@ -141,9 +192,9 @@ To stop reading the password on every run, install a key:
 
 ```
 bootstrap.sh                 Installs ansible on the host + places the state. Nothing else.
-sync.sh                      Local → host transfer (--check / --run / --watch / --bootstrap)
-sync.ps1                     PowerShell wrapper (delegates to sync.sh)
-run_vms.sh                   Runs Terraform on the host (--plan / --guests / --auto)
+state_push_ansible.sh        Push + run Ansible on the host
+state_push_terraform.sh      Push + run Terraform on the host
+lib/push.sh                  Shared transport: ssh auth, tar|ssh mirror, helpers
 
 ansible/
   ansible.cfg                Default inventory, roles_path
@@ -295,13 +346,11 @@ Order matters, because the bridges are host state and the guests need a
 gateway that exists:
 
 ```bash
-./sync.sh --run --tags network
+./state_push_ansible.sh --tags base,network
 ```
 
-Then on the host - `./sync.sh --shell` gets you there:
-
 ```bash
-/opt/proxmox-homelab/run_vms.sh
+./state_push_terraform.sh
 ```
 
 That creates the OPNsense ISO download and the firewall VM, and nothing else.
@@ -309,7 +358,7 @@ Install OPNsense from the Proxmox console, follow docs/network.md, add the one
 static route it tells you to, and only then:
 
 ```bash
-/opt/proxmox-homelab/run_vms.sh --guests
+./state_push_terraform.sh --guests
 ```
 
 `terraform output` prints the interface map, every address and the static route
@@ -324,7 +373,7 @@ default can work.
 ## Known gotchas
 
 - **CRLF.** The repo is edited on Windows and runs on Linux. `.gitattributes`
-  keeps the working tree LF, and `sync.sh` additionally strips `\r` from
+  keeps the working tree LF, and `lib/push.sh` additionally strips `\r` from
   `.yml/.yaml/.cfg/.j2/.sh/.md/.tf` files on the host.
 - **The `find` module's `contains` pattern** is anchored at the start of the
   line (it is not a plain `re.search`). That is why the pattern in `pve_repos`

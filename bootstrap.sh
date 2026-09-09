@@ -12,7 +12,7 @@
 #   ./bootstrap.sh --apply      # ...and then run site.yml
 #   ./bootstrap.sh --check      # ...and then do a dry run (--check --diff)
 #
-# From Windows, in one command:  ./sync.sh --bootstrap
+# From Windows, in one command:  ./state_push_ansible.sh --bootstrap
 #
 set -euo pipefail
 
@@ -27,7 +27,7 @@ STATE_DIR="${STATE_DIR:-/opt/proxmox-homelab}"
 # piped in over stdin ('ssh host bash -s < bootstrap.sh'). Say so clearly
 # instead of failing on an unbound BASH_SOURCE.
 if [ -z "${BASH_SOURCE[0]:-}" ]; then
-    die "Do not pipe this script into bash; it needs the ansible/ tree beside it. Copy the repo to the host first (sync.sh --bootstrap does it for you)."
+    die "Do not pipe this script into bash; it needs the ansible/ tree beside it. Copy the repo to the host first (state_push_ansible.sh --bootstrap does it for you)."
 fi
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODE="none"
@@ -69,7 +69,7 @@ if [ "$SRC_DIR" != "$STATE_DIR" ]; then
     warn "[2/4] Copying state into $STATE_DIR..."
     mkdir -p "$STATE_DIR"
     rsync -a --delete "$SRC_DIR/ansible/" "$STATE_DIR/ansible/"
-    for extra in terraform run_vms.sh README.md; do
+    for extra in terraform docs README.md; do
         if [ -e "$SRC_DIR/$extra" ]; then rsync -a "$SRC_DIR/$extra" "$STATE_DIR/"; fi
     done
 else
