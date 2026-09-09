@@ -20,6 +20,16 @@ variable "iso_file_id" {
   type        = string
 }
 
+variable "cdrom_interface" {
+  description = <<-EOT
+    Which IDE/SATA slot the installer ISO occupies. Pinned rather than left to
+    the provider because boot_order has to name it; see the boot_order comment
+    in main.tf.
+  EOT
+  type        = string
+  default     = "ide2"
+}
+
 # ---------------------------------------------------------------------------
 # Interfaces
 # ---------------------------------------------------------------------------
@@ -55,6 +65,21 @@ variable "lab_bridge" {
   description = "Bridge for experiments and quarantine"
   type        = string
   default     = "vmbr3"
+}
+
+variable "wan_connected" {
+  description = <<-EOT
+    Plug the WAN interface into the home network. Keep this false until
+    OPNsense has been installed AND its interfaces assigned from the console.
+
+    A fresh OPNsense applies a factory config of LAN = 192.168.1.1/24 with a
+    DHCP server. If that lands on a bridge carrying a 192.168.1.0/24 home
+    network, the VM starts answering for the real router and serving its own
+    leases -- the whole house loses internet, not just the lab. Booting with
+    the cable unplugged makes that impossible rather than merely unlikely.
+  EOT
+  type        = bool
+  default     = false
 }
 
 variable "wan_mac_address" {

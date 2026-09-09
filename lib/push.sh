@@ -40,6 +40,10 @@ TF_ENDPOINT="${TF_ENDPOINT:-https://127.0.0.1:8006/}"
 # missing bridge fails to start with "bridge 'vmbrN' does not exist".
 REQUIRED_BRIDGES="${REQUIRED_BRIDGES:-vmbr1 vmbr2 vmbr3}"
 
+# Storages Ansible provisions and Terraform depends on. nvme2 is the thin pool
+# built from the reclaimed nvme0n1; the desktop workstation lives there.
+REQUIRED_STORAGES="${REQUIRED_STORAGES:-local local-lvm nvme2}"
+
 # These are mirrored exactly (rsync --delete), so deleting a file locally also
 # removes it on the host. Without that a removed .tf file lingers there and
 # Terraform sees duplicate resources.
@@ -246,7 +250,13 @@ done
 if [ ! -d $TF_DIR ]; then
     echo '$TF_DIR does not exist. Push first.' >&2
     exit 1
-fi"
+fi
+for st in $REQUIRED_STORAGES; do
+    if ! pvesm status --storage \$st >/dev/null 2>&1; then
+        echo \"storage \$st is missing. Run: ./state_push_ansible.sh --tags storage\" >&2
+        exit 1
+    fi
+done"
 }
 
 confirm() {

@@ -6,53 +6,55 @@ terraform {
   }
 }
 
-variable "node_name" {
-  type = string
-}
-
-variable "vm_id" {
-  type = number
-}
-
-variable "vm_name" {
-  type = string
-}
-
-variable "ip_address" {
-  type = string
-}
-
-variable "gateway" {
-  type    = string
-  default = "192.168.3.1"
-}
-
-variable "network_bridge" {
-  type    = string
-  default = "vmbr1"
-}
-
-variable "iso_file_id" {
-  type = string
-}
-
+# ---------------------------------------------------------------------------
+# GPU-passthrough desktop workstation
+# ---------------------------------------------------------------------------
+# Not a general-purpose Linux guest. This is the machine the whole passthrough
+# effort exists for: q35 + OVMF, no virtual display, both GPUs and the laptop's
+# own USB devices handed straight through. It consumes the vfio-pci bindings
+# that ansible/roles/gpu_passthrough sets up.
+#
+# The passthrough configuration is deliberately unchanged from what this lab
+# ran before. What did change:
+#
+#   * datastore_id is a variable defaulting to nvme2 - the pool built from the
+#     reclaimed nvme0n1. It used to be hardcoded to a storage that no longer
+#     existed, so every apply failed.
+#   * USB ports 1-2 and 3-2 are gone. They do not exist on this machine and
+#     Proxmox refuses to start a VM that claims a missing port.
+#   * The cloud-init initialization block is gone. It never did anything: an
+#     installer ISO carries no cloud-init, so the address it declared was
+#     silently ignored. The MAC is pinned instead, so OPNsense can hold a DHCP
+#     reservation for 10.10.10.11.
+#
 resource "proxmox_virtual_environment_vm" "ubuntu_desktop" {
-  name      = var.vm_name
-  node_name = var.node_name
-  vm_id     = var.vm_id
-  machine   = "q35"
-  bios      = "ovmf"
+  name        = var.vm_name
+  node_name   = var.node_name
+  vm_id       = var.vm_id
+  description = "Ubuntu desktop workstation with GPU passthrough. Managed by Terraform."
+  tags        = var.tags
+
+  machine = "q35"
+  bios    = "ovmf"
+
+  started = var.started
+  on_boot = var.on_boot
+
+  startup {
+    order = var.startup_order
+  }
 
   cpu {
-    cores   = 12
+    cores   = var.cores
     sockets = 1
-    type    = "host"
+    type    = var.cpu_type
   }
 
   memory {
-    dedicated = 16384
+    dedicated = var.memory
   }
 
+  # No emulated display: the picture comes out of the passed-through GPU.
   vga {
     type = "none"
   }
@@ -60,81 +62,61 @@ resource "proxmox_virtual_environment_vm" "ubuntu_desktop" {
   scsi_hardware = "virtio-scsi-single"
 
   disk {
-    datastore_id = "nvme2"
+    datastore_id = var.datastore_id
     interface    = "scsi0"
-    size         = 300
+    size         = var.disk_size
     iothread     = true
     file_format  = "raw"
   }
 
   efi_disk {
-    datastore_id      = "nvme2"
+    datastore_id      = var.datastore_id
     type              = "4m"
     pre_enrolled_keys = true
   }
 
   cdrom {
-    enabled   = true
     file_id   = var.iso_file_id
     interface = "ide2"
   }
 
+  # Disk first so the post-install reboot lands in the installed system rather
+  # than back in the installer; an empty disk has no boot sector, so the first
+  # boot still falls through to the CD.
+  boot_order = ["scsi0", "ide2"]
+
   network_device {
     bridge      = var.network_bridge
     model       = "virtio"
-    mac_address = "BC:24:11:B8:0E:F8"
+    mac_address = var.mac_address
     firewall    = true
   }
 
-  usb { host = "1-3" }
-  usb { host = "1-4" }
-  usb { host = "3-2" }
-  usb { host = "3-3" }
-  usb { host = "3-4" }
-  usb { host = "1-2" }
-
-  hostpci {
-    device = "0000:06:00.0"
-    pcie   = true
-    xvga   = true
+  dynamic "hostpci" {
+    for_each = var.hostpci_devices
+    content {
+      device = "hostpci${hostpci.key}"
+      id     = hostpci.value.device
+      pcie   = hostpci.value.pcie
+      xvga   = hostpci.value.xvga
+    }
   }
 
-  hostpci {
-    device = "0000:01:00"
-    pcie   = true
+  dynamic "usb" {
+    for_each = var.usb_ports
+    content {
+      host = usb.value
+    }
   }
 
-  hostpci {
-    device = "0000:06:00.1"
-    pcie   = true
+  operating_system {
+    type = "l26"
   }
 
-  hostpci {
-    device = "0000:06:00.2"
-    pcie   = true
-  }
-
-  hostpci {
-    device = "0000:06:00.5"
-    pcie   = true
-  }
-
-  hostpci {
-    device = "0000:06:00.6"
-    pcie   = true
-  }
-
-  hostpci {
-    device = "0000:03:00.0"
-    pcie   = true
-  }
-
-  initialization {
-    ip_config {
-      ipv4 {
-        address = var.ip_address
-        gateway = var.gateway
-      }
+  lifecycle {
+    precondition {
+      condition     = length([for d in var.hostpci_devices : d if d.xvga]) <= 1
+      error_message = "Only one passed-through device may be the primary display (xvga = true)."
     }
   }
 }

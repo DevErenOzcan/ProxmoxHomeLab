@@ -57,18 +57,36 @@ resource "proxmox_virtual_environment_vm" "opnsense" {
     discard      = "on"
   }
 
-  # Installer media. Leave it attached: OPNsense upgrades in place, but having
-  # the ISO there makes a reinstall a two-click job.
+  # Installer media. Left attached on purpose: OPNsense upgrades in place, but
+  # having the ISO there makes a reinstall a two-click job.
+  #
+  # The interface is pinned so boot_order below can name it. Without that the
+  # provider picks one (it chose ide3) and Proxmox ends up booting the CD first
+  # -- which means the reboot straight after installing lands you back in the
+  # installer instead of the system you just installed.
   cdrom {
-    file_id = var.iso_file_id
+    file_id   = var.iso_file_id
+    interface = var.cdrom_interface
   }
 
+  # Disk first, CD second. An empty disk has no boot sector, so SeaBIOS falls
+  # through to the CD and the first install still works; once the disk is
+  # bootable it wins and the ISO stops getting in the way.
+  boot_order = ["scsi0", var.cdrom_interface]
+
   # -- net0 -> vtnet0 -- WAN, faces the home network ------------------------
+  # Starts DISCONNECTED, and that is not paranoia. A fresh OPNsense boots its
+  # factory config, which is LAN = 192.168.1.1/24 with a DHCP server on it. On
+  # a home network that already uses 192.168.1.0/24 the VM then answers ARP for
+  # the real router's address and hands out its own leases -- it takes the
+  # house offline, not just the lab. Connect this only after the console has
+  # assigned interfaces and given WAN its static address.
   network_device {
-    bridge      = var.wan_bridge
-    model       = "virtio"
-    mac_address = var.wan_mac_address
-    firewall    = false
+    bridge       = var.wan_bridge
+    model        = "virtio"
+    mac_address  = var.wan_mac_address
+    firewall     = false
+    disconnected = !var.wan_connected
   }
 
   # -- net1 -> vtnet1 -- LAN, trusted guests --------------------------------

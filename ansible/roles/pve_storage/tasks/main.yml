@@ -1,0 +1,179 @@
+---
+# Reclaims a leftover volume group and turns the disk it occupies into a
+# Proxmox thin-pool storage.
+#
+# Why this exists: this host was installed twice. The first install left
+# "pve-OLD-5807C00D" holding the whole of nvme0n1 - roughly 460 GB that Proxmox
+# does not reference and nothing uses. The GPU-passthrough workstation needs a
+# 300 GB disk and the live pool has no room for it.
+#
+# Everything here is destructive, so it only runs when told to and only after
+# every guard agrees the volume group is disposable. Re-running once the target
+# storage exists is a no-op.
+
+- name: pve_storage | Does the target storage already exist
+  ansible.builtin.command: "pvesm status --storage {{ pve_storage_target_name }}"
+  register: pve_storage_existing
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: pve_storage | Already provisioned
+  ansible.builtin.debug:
+    msg: "Storage '{{ pve_storage_target_name }}' already exists; nothing to do."
+  when: pve_storage_existing.rc == 0
+
+- name: pve_storage | Reclaim a leftover volume group
+  when:
+    - pve_storage_existing.rc != 0
+    - pve_storage_reclaim | bool
+  block:
+
+    - name: pve_storage | A volume group has to be named
+      ansible.builtin.assert:
+        that:
+          - pve_storage_reclaim_vg | length > 0
+        fail_msg: >-
+          pve_storage_reclaim is true but pve_storage_reclaim_vg is empty.
+          Name the volume group to destroy explicitly.
+
+    # ---- gather the evidence -------------------------------------------
+    - name: pve_storage | Read the volume group
+      ansible.builtin.command: >-
+        vgs --noheadings --nosuffix --units g -o vg_name,vg_size
+        {{ pve_storage_reclaim_vg }}
+      register: pve_storage_vg
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: pve_storage | Read its logical volumes
+      ansible.builtin.command: >-
+        lvs --noheadings -o lv_name,lv_path,data_percent,segtype
+        {{ pve_storage_reclaim_vg }}
+      register: pve_storage_lvs
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: pve_storage | Read the mount table
+      ansible.builtin.command: findmnt --raw --noheadings -o SOURCE
+      register: pve_storage_mounts
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: pve_storage | Read active swap devices
+      ansible.builtin.command: swapon --show=NAME --noheadings
+      register: pve_storage_swaps
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: pve_storage | Read the Proxmox storage config
+      ansible.builtin.slurp:
+        src: /etc/pve/storage.cfg
+      register: pve_storage_cfg
+
+    # ---- refuse unless every guard agrees -------------------------------
+    - name: pve_storage | The volume group must exist
+      ansible.builtin.assert:
+        that:
+          - pve_storage_vg.rc == 0
+          - pve_storage_vg.stdout | trim | length > 0
+        fail_msg: "Volume group '{{ pve_storage_reclaim_vg }}' does not exist. Nothing was touched."
+
+    - name: pve_storage | Proxmox must not be using it
+      ansible.builtin.assert:
+        that:
+          - pve_storage_reclaim_vg not in (pve_storage_cfg.content | b64decode)
+        fail_msg: >-
+          '{{ pve_storage_reclaim_vg }}' appears in /etc/pve/storage.cfg, so
+          Proxmox believes it is live storage. Remove the storage first if you
+          really mean to destroy it.
+      when: pve_storage_require_unreferenced | bool
+
+    - name: pve_storage | None of its volumes may be mounted
+      ansible.builtin.assert:
+        that:
+          - pve_storage_mounts.stdout_lines | select('search', pve_storage_reclaim_vg | regex_escape) | list | length == 0
+        fail_msg: >-
+          A logical volume of '{{ pve_storage_reclaim_vg }}' is mounted.
+          Unmount it and look at what is on it before reclaiming the disk.
+      when: pve_storage_require_unmounted | bool
+
+    - name: pve_storage | None of its volumes may be active swap
+      ansible.builtin.assert:
+        that:
+          - pve_storage_swaps.stdout_lines | select('search', pve_storage_reclaim_vg | regex_escape) | list | length == 0
+        fail_msg: "A logical volume of '{{ pve_storage_reclaim_vg }}' is in use as swap."
+      when: pve_storage_require_no_swap | bool
+
+    # A thin pool that has never held a guest disk reads 0.00. Anything above
+    # that means real data lives here.
+    - name: pve_storage | Its thin pool must be empty
+      ansible.builtin.assert:
+        that:
+          - pve_storage_lvs.stdout_lines
+            | select('search', 'thin-pool')
+            | map('regex_replace', '^.*?([0-9]+[.][0-9]+).*$', '\1')
+            | map('float')
+            | sum == 0.0
+        fail_msg: >-
+          The thin pool in '{{ pve_storage_reclaim_vg }}' is not empty, so it
+          holds guest disks. Refusing to destroy it.
+      when: pve_storage_require_empty_pool | bool
+
+    - name: pve_storage | What is about to be destroyed
+      ansible.builtin.debug:
+        msg: >-
+          Destroying volume group {{ pve_storage_reclaim_vg }}
+          ({{ pve_storage_vg.stdout | trim }}) and rebuilding
+          {{ pve_storage_pv }} as thin pool
+          {{ pve_storage_target_vg }}/{{ pve_storage_thinpool }}.
+
+    # ---- do it -----------------------------------------------------------
+    - name: pve_storage | Remove the old volume group
+      ansible.builtin.command: "vgremove --force {{ pve_storage_reclaim_vg }}"
+      changed_when: true
+
+    - name: pve_storage | Re-create the physical volume
+      ansible.builtin.command: "pvcreate --force --force --yes {{ pve_storage_pv }}"
+      changed_when: true
+
+    - name: pve_storage | Create the volume group
+      ansible.builtin.command: "vgcreate {{ pve_storage_target_vg }} {{ pve_storage_pv }}"
+      changed_when: true
+
+    - name: pve_storage | Create the thin pool
+      ansible.builtin.command: >-
+        lvcreate --type thin-pool --extents 100%FREE
+        --name {{ pve_storage_thinpool }} {{ pve_storage_target_vg }}
+      changed_when: true
+
+    - name: pve_storage | Register it with Proxmox
+      ansible.builtin.command: >-
+        pvesm add lvmthin {{ pve_storage_target_name }}
+        --vgname {{ pve_storage_target_vg }}
+        --thinpool {{ pve_storage_thinpool }}
+        --content {{ pve_storage_content }}
+      changed_when: true
+
+    - name: pve_storage | Confirm Proxmox sees it
+      ansible.builtin.command: "pvesm status --storage {{ pve_storage_target_name }}"
+      register: pve_storage_final
+      changed_when: false
+
+    - name: pve_storage | Result
+      ansible.builtin.debug:
+        msg: "{{ pve_storage_final.stdout_lines }}"
+
+- name: pve_storage | Not enabled
+  ansible.builtin.debug:
+    msg: >-
+      Storage '{{ pve_storage_target_name }}' is missing and pve_storage_reclaim
+      is false, so nothing was changed. The GPU workstation needs this storage;
+      enable it in group_vars once you are happy with what gets destroyed.
+  when:
+    - pve_storage_existing.rc != 0
+    - not (pve_storage_reclaim | bool)

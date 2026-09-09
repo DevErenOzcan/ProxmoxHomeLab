@@ -112,6 +112,17 @@ manual: OPNsense has no unattended installer.
 
 ## Installing OPNsense
 
+> **The WAN interface starts unplugged, and it has to.** A fresh OPNsense
+> applies a factory config of `LAN = 192.168.1.1/24` with a DHCP server on it.
+> This home network already uses 192.168.1.0/24, so the moment that config
+> touches `vmbr0` the VM starts answering ARP for the real router's address and
+> serving its own leases — the whole house loses internet, not just the lab.
+> That is not hypothetical; it happened here on 2026-09-09 and took the host's
+> own DNS down with it.
+>
+> `firewall_wan_connected` therefore defaults to `false`, which sets
+> `disconnected` on net0. Install and assign interfaces first, then connect it.
+
 Open the VM console in the Proxmox UI (`opnsense-fw` → Console).
 
 1. The installer boots into a live environment. Log in as **`installer`** with
@@ -129,6 +140,17 @@ Open the VM console in the Proxmox UI (`opnsense-fw` → Console).
 3. Choose **2) Set interface IP address** and give each one its address from
    the table above. WAN is static `192.168.1.201/24` with gateway
    `192.168.1.1`; say no to DHCP on every interface for now; say no to IPv6.
+
+4. Only now plug WAN in:
+
+   ```bash
+   ./state_push_terraform.sh -var firewall_wan_connected=true
+   ```
+
+   Set it in a `.tfvars` file instead if you would rather not repeat the flag.
+   Until this runs, the firewall can see its internal segments but not the home
+   network — which is exactly what you want while it still thinks it is
+   192.168.1.1.
 
 ### Getting into the web UI the first time
 
