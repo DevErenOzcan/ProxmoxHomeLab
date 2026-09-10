@@ -243,6 +243,10 @@ The network design, the firewall rules and the OPNsense post-install runbook
 live in [docs/network.md](docs/network.md). Read that before the first
 `terraform apply`.
 
+[docs/commands.md](docs/commands.md) is a cheatsheet of the ~20 raw Ansible and
+Terraform commands, for running the tools directly on the host instead of
+through the wrappers.
+
 > Why is `group_vars` under `inventory/`? The playbooks live in the
 > `playbooks/` subdirectory, and Ansible looks for playbook-adjacent
 > `group_vars` in `playbooks/group_vars/`. Inventory-adjacent `group_vars` are
