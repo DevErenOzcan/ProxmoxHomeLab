@@ -1,0 +1,12 @@
+---
+# Python libraries the collections need. httpx is what ansibleguy.opnsense
+# talks to the OPNsense API with.
+ansible_deps_packages:
+  - python3-httpx
+  - sshpass      # password SSH, for reaching a guest before its key is in place
+  - xorriso      # builds the cloud-init / autoinstall seed ISOs
+
+ansible_deps_requirements: "{{ playbook_dir }}/../requirements.yml"
+ansible_deps_collections_path: /root/.ansible/collections
+# Set true to re-download collections that are already present.
+ansible_deps_force: false

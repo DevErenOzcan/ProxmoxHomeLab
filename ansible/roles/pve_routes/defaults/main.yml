@@ -1,0 +1,11 @@
+---
+# The Proxmox host is the Ansible controller for the guests, but it has no
+# address on vmbr1/2/3 by design - giving it one would be a second path into
+# those segments that bypasses the firewall. Routing through OPNsense keeps the
+# firewall in charge: traffic to the lab leaves via vmbr0 to the firewall's WAN
+# address, and OPNsense's WAN rules decide what happens next.
+pve_routes_enabled: true
+pve_routes:
+  - destination: "10.10.0.0/16"
+    gateway: "192.168.1.201"
+    comment: "lab segments, via the OPNsense WAN address"

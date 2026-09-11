@@ -277,6 +277,53 @@ route -p add 10.10.0.0 mask 255.255.0.0 192.168.1.201
 
 `terraform output fallback_route_commands` prints the macOS variant too.
 
+## Configuration as code
+
+Interface assignment and addressing are the only parts that stay manual — the
+OPNsense API does not expose them. Everything else is declared in
+`ansible/roles/opnsense_config/defaults/main.yml` and applied over the API:
+
+| What | Where |
+|---|---|
+| Aliases `HOME_LAN`, `LAB_NETS` | `opnsense_aliases` |
+| Every firewall rule in the tables above | `opnsense_rules` |
+| Unbound forwarders | `opnsense_dns_forwarders` |
+| DHCP pools and reservations | `opnsense_segments`, `opnsense_dhcp_reservations` |
+
+```bash
+./state_push_ansible.sh --tags firewall
+```
+
+### The one-time credential
+
+Create an API key once, in the GUI: **System → Access → Users → root → API
+keys → +**. That downloads a file containing a key and a secret. Put both in
+`.env`:
+
+```
+opnsense_api_key=...
+opnsense_api_secret=...
+```
+
+`state_push_ansible.sh` forwards them to the host on stdin as environment
+variables, so they never reach the host's disk or its argv — the same
+treatment the Proxmox password gets. Without them the role prints how to
+create them and skips; it does not fail the converge.
+
+### Why this is safe to run remotely
+
+The role wraps its changes in an OPNsense **savepoint**. If a rule locks the
+firewall out of its own management network, OPNsense rolls the configuration
+back on its own when the savepoint is not confirmed in time. The role confirms
+it only after every change has applied, and reverts explicitly if any step
+fails, so a half-applied ruleset is not a state you can end up in.
+
+The rules land in the `os-firewall` plugin's *Automation* ruleset, which is
+evaluated ahead of anything created in the GUI. Rules you added by hand are
+left alone.
+
+---
+
 ## Traffic analysis
 
 All under the OPNsense UI. Sized for `firewall_memory = 4096`; raise it to

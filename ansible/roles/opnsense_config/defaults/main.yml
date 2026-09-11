@@ -1,0 +1,228 @@
+---
+# =============================================================================
+# OPNsense configuration as code
+# =============================================================================
+# Everything below is applied through the OPNsense REST API by the
+# ansibleguy.opnsense collection. This is the part of the firewall that used to
+# be twenty screens of clicking: aliases, rules, NAT, DNS, DHCP.
+#
+# NOT covered here, because the API does not expose it: assigning interfaces to
+# NICs and giving them addresses. That stays a one-time console job, described
+# in docs/network.md.
+
+# --- connection -------------------------------------------------------------
+opnsense_host: "192.168.1.201"
+opnsense_port: 443
+# Self-signed certificate on a lab firewall; nothing here crosses the internet.
+opnsense_ssl_verify: false
+
+# Credentials are forwarded from .env by state_push_ansible.sh and arrive as
+# environment variables, so they never reach the host's disk or any argv.
+# Create the key once: GUI -> System -> Access -> Users -> root -> API keys -> +
+opnsense_api_key: "{{ lookup('env', 'OPNSENSE_API_KEY') }}"
+opnsense_api_secret: "{{ lookup('env', 'OPNSENSE_API_SECRET') }}"
+
+# --- behaviour --------------------------------------------------------------
+# The rule module drives the os-firewall plugin, so it has to be installed.
+opnsense_install_firewall_plugin: true
+
+# Wrap the run in a savepoint. OPNsense rolls the configuration back on its own
+# if the savepoint is not confirmed within the timeout, which is the difference
+# between "I locked myself out" and "it fixed itself in 60 seconds".
+opnsense_use_savepoint: true
+
+# Remove rules and aliases this repo does not declare. Off by default so the
+# role can be introduced next to hand-made configuration without eating it.
+opnsense_purge_unmanaged: false
+
+# --- the network, mirroring terraform/environments/local/locals.tf ----------
+opnsense_home_lan: "192.168.1.0/24"
+opnsense_lab_supernet: "10.10.0.0/16"
+
+# OPNsense interface names, in the order the installer assigns them.
+opnsense_if:
+  wan: wan
+  lan: lan
+  dmz: opt1
+  lab: opt2
+
+opnsense_segments:
+  lan: { cidr: "10.10.10.0/24", gateway: "10.10.10.1", dhcp_from: "10.10.10.100", dhcp_to: "10.10.10.199" }
+  dmz: { cidr: "10.10.20.0/24", gateway: "10.10.20.1", dhcp_from: "", dhcp_to: "" }
+  lab: { cidr: "10.10.30.0/24", gateway: "10.10.30.1", dhcp_from: "10.10.30.100", dhcp_to: "10.10.30.199" }
+
+# --- aliases ----------------------------------------------------------------
+opnsense_aliases:
+  - name: HOME_LAN
+    type: network
+    content: ["{{ opnsense_home_lan }}"]
+    description: "The house network the Proxmox host also lives on"
+  - name: LAB_NETS
+    type: network
+    content: ["{{ opnsense_lab_supernet }}"]
+    description: "Every internal segment, summarised"
+
+# --- firewall rules ---------------------------------------------------------
+# Order matters and is expressed by 'sequence'. The policy is asymmetric on
+# purpose: the home network may reach the lab, the lab may not reach the home
+# network. A stateful firewall needs only the inbound direction allowed for
+# that; replies ride the existing state.
+#
+# Rule 1 on WAN is the one that keeps you in the building. Do not remove it
+# without another way to reach the GUI.
+opnsense_rules:
+  # ---- WAN -----------------------------------------------------------------
+  - description: "Home LAN may reach this firewall's web UI"
+    interface: "{{ opnsense_if.wan }}"
+    sequence: 10
+    action: pass
+    direction: in
+    protocol: TCP
+    source_net: HOME_LAN
+    destination_net: "(self)"
+    destination_port: 443
+
+  - description: "Home LAN may reach the lab segments"
+    interface: "{{ opnsense_if.wan }}"
+    sequence: 11
+    action: pass
+    direction: in
+    source_net: HOME_LAN
+    destination_net: LAB_NETS
+
+  # ---- LAN -----------------------------------------------------------------
+  - description: "LAN may use the gateway for DNS"
+    interface: "{{ opnsense_if.lan }}"
+    sequence: 10
+    action: pass
+    direction: in
+    protocol: UDP
+    source_net: "{{ opnsense_segments.lan.cidr }}"
+    destination_net: "{{ opnsense_segments.lan.gateway }}"
+    destination_port: 53
+
+  - description: "LAN must not reach the home network"
+    interface: "{{ opnsense_if.lan }}"
+    sequence: 20
+    action: block
+    direction: in
+    source_net: "{{ opnsense_segments.lan.cidr }}"
+    destination_net: HOME_LAN
+    log: true
+
+  - description: "LAN must not reach the lab segment"
+    interface: "{{ opnsense_if.lan }}"
+    sequence: 30
+    action: block
+    direction: in
+    source_net: "{{ opnsense_segments.lan.cidr }}"
+    destination_net: "{{ opnsense_segments.lab.cidr }}"
+
+  - description: "LAN may reach DMZ services"
+    interface: "{{ opnsense_if.lan }}"
+    sequence: 40
+    action: pass
+    direction: in
+    source_net: "{{ opnsense_segments.lan.cidr }}"
+    destination_net: "{{ opnsense_segments.dmz.cidr }}"
+
+  - description: "LAN may reach the internet"
+    interface: "{{ opnsense_if.lan }}"
+    sequence: 50
+    action: pass
+    direction: in
+    source_net: "{{ opnsense_segments.lan.cidr }}"
+    destination_net: any
+
+  # ---- DMZ -----------------------------------------------------------------
+  # The segment Cloudflare Tunnel exposes, so the one most likely to be
+  # compromised. Internet only.
+  - description: "DMZ may use the gateway for DNS"
+    interface: "{{ opnsense_if.dmz }}"
+    sequence: 10
+    action: pass
+    direction: in
+    protocol: UDP
+    source_net: "{{ opnsense_segments.dmz.cidr }}"
+    destination_net: "{{ opnsense_segments.dmz.gateway }}"
+    destination_port: 53
+
+  - description: "DMZ must not reach the home network"
+    interface: "{{ opnsense_if.dmz }}"
+    sequence: 20
+    action: block
+    direction: in
+    source_net: "{{ opnsense_segments.dmz.cidr }}"
+    destination_net: HOME_LAN
+    log: true
+
+  - description: "DMZ must not pivot into LAN or LAB"
+    interface: "{{ opnsense_if.dmz }}"
+    sequence: 30
+    action: block
+    direction: in
+    source_net: "{{ opnsense_segments.dmz.cidr }}"
+    destination_net: LAB_NETS
+    log: true
+
+  - description: "DMZ may reach the internet (cloudflared dials out on 443)"
+    interface: "{{ opnsense_if.dmz }}"
+    sequence: 40
+    action: pass
+    direction: in
+    source_net: "{{ opnsense_segments.dmz.cidr }}"
+    destination_net: any
+
+  # ---- LAB -----------------------------------------------------------------
+  - description: "LAB may use the gateway for DNS"
+    interface: "{{ opnsense_if.lab }}"
+    sequence: 10
+    action: pass
+    direction: in
+    protocol: UDP
+    source_net: "{{ opnsense_segments.lab.cidr }}"
+    destination_net: "{{ opnsense_segments.lab.gateway }}"
+    destination_port: 53
+
+  - description: "LAB must not reach the home network"
+    interface: "{{ opnsense_if.lab }}"
+    sequence: 20
+    action: block
+    direction: in
+    source_net: "{{ opnsense_segments.lab.cidr }}"
+    destination_net: HOME_LAN
+    log: true
+
+  - description: "LAB is isolated from the other segments"
+    interface: "{{ opnsense_if.lab }}"
+    sequence: 30
+    action: block
+    direction: in
+    source_net: "{{ opnsense_segments.lab.cidr }}"
+    destination_net: LAB_NETS
+    log: true
+
+  - description: "LAB may reach the internet"
+    interface: "{{ opnsense_if.lab }}"
+    sequence: 40
+    action: pass
+    direction: in
+    source_net: "{{ opnsense_segments.lab.cidr }}"
+    destination_net: any
+
+# --- DNS --------------------------------------------------------------------
+# The segments are firewalled off from the home router, so they cannot use it
+# as a resolver. Unbound on the firewall forwards to public resolvers instead.
+opnsense_dns_enabled: true
+opnsense_dns_forwarders:
+  - "1.1.1.1"
+  - "9.9.9.9"
+
+# --- DHCP -------------------------------------------------------------------
+# OPNsense 25.x removed ISC dhcpd; Dnsmasq serves DHCP here.
+opnsense_dhcp_enabled: true
+opnsense_dhcp_reservations:
+  - host: ubuntu-desktop
+    hardware_addr: "BC:24:11:B8:0E:F8"
+    ip: "10.10.10.11"
+    description: "GPU passthrough workstation - installer ISO, so no cloud-init to set an address"

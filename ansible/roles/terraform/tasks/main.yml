@@ -11,6 +11,11 @@
     group: root
     mode: "0755"
 
+# force: true, not false. HashiCorp rotates this signing key, and a stale copy
+# breaks "apt update" for good with "Missing key <fingerprint>, which is needed
+# to verify signature" - which then fails every play that installs a package,
+# not just this one. get_url only reports changed when the bytes differ, so
+# re-fetching every run stays honest.
 - name: terraform | Download the HashiCorp GPG key
   ansible.builtin.get_url:
     url: "{{ terraform_gpg_url }}"
@@ -18,7 +23,7 @@
     owner: root
     group: root
     mode: "0644"
-    force: false
+    force: true
 
 - name: terraform | Add the HashiCorp APT repository
   ansible.builtin.deb822_repository:

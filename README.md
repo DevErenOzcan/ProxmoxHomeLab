@@ -212,9 +212,16 @@ ansible/
     20-network.yml           the vmbr1 / vmbr2 / vmbr3 bridges
     30-gpu.yml               GPU passthrough + vendor-reset (one play on purpose)
     40-laptop.yml            lid behaviour
+    05-controller.yml        collections, python libs, route to the lab
+    15-storage.yml           reclaims nvme0n1 into the nvme2 thin pool
+    50-firewall-config.yml   OPNsense aliases, rules, DNS, DHCP over its API
     99-reboot.yml            reboots when one is pending (on by default)
   roles/
     pve_common/              shared handlers (update-grub, initramfs, reboot marker)
+    ansible_deps/            Galaxy collections + python libs the controller needs
+    pve_routes/              route into the segments behind the firewall
+    pve_storage/             reclaims a leftover volume group into a thin pool
+    opnsense_config/         the firewall's aliases, rules, DNS and DHCP, via its API
     pve_repos/               disable enterprise repos, add no-subscription
     base_packages/           dist-upgrade, base packages, kernel header selection
     terraform/               HashiCorp repository + terraform package

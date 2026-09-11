@@ -1,0 +1,9 @@
+---
+# Collections the Proxmox host needs as an Ansible controller.
+# Installed by roles/ansible_deps, not by hand.
+collections:
+  # Configures OPNsense through its REST API: aliases, firewall rules, DHCP,
+  # Unbound, NAT, Suricata. Everything the firewall needs except interface
+  # assignment and addressing, which the API does not expose.
+  - name: ansibleguy.opnsense
+    version: ">=1.2.16"
