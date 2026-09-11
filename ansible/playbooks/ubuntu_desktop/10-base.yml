@@ -1,0 +1,8 @@
+---
+- name: Configure base settings on guests
+  hosts: guests
+  become: yes
+  gather_facts: yes
+  roles:
+    - guest_base
+    - desktop_data_volume

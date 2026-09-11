@@ -61,7 +61,19 @@ variable "memory" {
 }
 
 variable "disk_size" {
-  description = "Disk in GB"
+  description = "OS Disk in GB"
+  type        = number
+  default     = 40
+}
+
+variable "data_volume_id" {
+  description = "ID of the independent data volume to attach (e.g. local-lvm:vm-999-disk-1). If empty, no data volume is attached."
+  type        = string
+  default     = ""
+}
+
+variable "data_disk_size" {
+  description = "Size of the data disk in GB. Must match the actual size of the independent volume."
   type        = number
   default     = 300
 }

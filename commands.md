@@ -1,21 +1,41 @@
 # Proxmox HomeLab Commands
 
-Here are the commands for managing the Proxmox HomeLab environment:
+Yönetim ve kurulum komutları tamamen standart CLI araçlarına dayanır. 
+Aşağıdaki komutları doğrudan terminalinizden kopyalayıp çalıştırabilirsiniz.
 
-### 1. Proxmox Configuration
-To run the Proxmox configuration playbook:
+## Adım 1: Proxmox Host Konfigürasyonu
+Proxmox sunucusunun temel ayarlarını, depolarını, ağ köprülerini (bridge) ve GPU Passthrough ayarlarını yapmak için:
+
 ```bash
-ansible-playbook 01_proxmox_config/site.yml
+cd ansible
+ansible-playbook -i inventories/production/hosts.yml playbooks/proxmox/site.yml
 ```
 
-### 2. VM Provisioning
-To provision virtual machines using Terraform:
+*(Not: İlk çalıştırmadan önce `ansible-galaxy collection install -r requirements.yml` komutu ile gerekli Ansible eklentilerini kurduğunuzdan emin olun.)*
+
+## Adım 2: Sanal Makine Kurulumları (Provisioning)
+Terraform kullanarak sanal makineleri (VM) ve ağ altyapısını oluşturmak için:
+
 ```bash
-terraform apply 02_vm_provisioning/environments/local -var-file="secret.tfvars"
+cd terraform/environments/production
+terraform init  # Sadece ilk kullanımda
+terraform apply -var-file="secret.tfvars"
 ```
 
-### 3. VM Configuration
-To run the VM configuration playbook:
+*(Not: Immutable Desktop senaryosu için Proxmox üzerinden bağımsız oluşturduğunuz veri diskinin ID'sini `secret.tfvars` veya `variables.tf` içinde `data_volume_id` olarak belirtmeyi unutmayın.)*
+
+## Adım 3: Sanal Makine İç Konfigürasyonları (Ansible)
+Sanal makineler ayağa kalktıktan sonra, işletim sistemi içi ayarları, paket kurulumlarını ve disk bağlama işlemlerini yapmak için:
+
+**Ubuntu Desktop için:**
 ```bash
-ansible-playbook 03_vm_config/site.yml
+cd ansible
+ansible-playbook -i inventories/production/hosts.yml playbooks/ubuntu_desktop/site.yml
+```
+*(Bu komut, masaüstü ortamını kurar ve bağımsız Data Volume diskinizi otomatik olarak `/mnt/data` klasörüne mount edip kullanıcı klasörlerinizi symlink ile bağlar.)*
+
+**OPNsense / Firewall için:**
+```bash
+cd ansible
+ansible-playbook -i inventories/production/hosts.yml playbooks/opnsense/site.yml
 ```

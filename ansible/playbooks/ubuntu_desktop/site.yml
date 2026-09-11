@@ -5,4 +5,4 @@
 # Usage:
 #   ./step3_vm_config.sh
 #
-- import_playbook: playbooks/10-base.yml
+- import_playbook: 10-base.yml

@@ -33,94 +33,52 @@ You need **Ansible** and **Terraform** installed on your local machine (WSL, Git
 
 Install the required Ansible collections:
 ```bash
-ansible-galaxy collection install -r 01_proxmox_config/requirements.yml
+ansible-galaxy collection install -r ansible/requirements.yml
 ```
 
 Ensure you have passwordless SSH access to the Proxmox host (`192.168.1.200`) as `root` from your local machine.
 
 ### 2. Execution Steps
 
-Instead of running individual playbooks or Terraform commands manually, the project is structured into three fundamental components. You can execute them in order using the root wrapper scripts:
+The repository is structured around independent environments. All execution commands (Ansible playbooks and Terraform commands) are documented in **[commands.md](commands.md)**. 
 
-**Adım 1: Proxmox Host Konfigürasyonu (Ansible)**
-```bash
-./step1_proxmox_config.sh
-```
-
-**Adım 2: Sanal Makine Kurulumları (Terraform)**
-```bash
-# terraform init might be required on first run inside 02_vm_provisioning/environments/local
-./step2_vm_provisioning.sh
-```
-*Note: Make sure to read [docs/network.md](docs/network.md) before provisioning.*
-
-**Adım 3: Sanal Makine Konfigürasyonları (Ansible)**
-```bash
-./step3_vm_config.sh
-```
+Please refer to that file to run the 3-step provisioning and configuration process.
 
 ---
 
 ## Layout
 
-The project structure strictly follows the three fundamental components:
+The project structure strictly follows DevOps best practices, clearly separating the logic for each VM:
 
 ```
-step1_proxmox_config.sh      Run Step 1
-step2_vm_provisioning.sh     Run Step 2
-step3_vm_config.sh           Run Step 3
+commands.md                  Cheatsheet for execution commands
 
-01_proxmox_config/           Phase 1: Proxmox OS configuration (Ansible)
-02_vm_provisioning/          Phase 2: VM creation and networking (Terraform)
-03_vm_config/                Phase 3: VM internal configuration (Ansible)
+terraform/
+  environments/
+    production/              Live environment
+  modules/                   Reusable infrastructure blocks
+    opnsense/
+    ubuntu_desktop/          Includes detached Data Volume support
+    ubuntu_cloud/
 
-01_proxmox_config/
-  ansible.cfg                Default inventory, roles_path
-  site.yml                   Runs every playbook in order
-  inventory/
-    local.yml                DEFAULT — host configures itself (connection: local)
-    remote.yml               From a Linux control machine over SSH
-    group_vars/
-      proxmox_nodes.yml      ⭐ THE settings file — everything you'd change is here
-    host_vars/
-      pve1.yml               Overrides that apply to pve1 only
-  playbooks/
-    10-base.yml              repositories + packages + terraform
-    20-network.yml           the vmbr1 / vmbr2 / vmbr3 bridges
-    30-gpu.yml               GPU passthrough + vendor-reset (one play on purpose)
-    40-laptop.yml            lid behaviour
-    05-controller.yml        collections, python libs, route to the lab
-    15-storage.yml           reclaims nvme0n1 into the nvme2 thin pool
-    50-firewall-config.yml   OPNsense aliases, rules, DNS, DHCP over its API
-    99-reboot.yml            reboots when one is pending (on by default)
-  roles/
-    pve_common/              shared handlers (update-grub, initramfs, reboot marker)
-    ansible_deps/            Galaxy collections + python libs the controller needs
-    pve_routes/              route into the segments behind the firewall
-    pve_storage/             reclaims a leftover volume group into a thin pool
-    opnsense_config/         the firewall's aliases, rules, DNS and DHCP, via its API
-    pve_repos/               disable enterprise repos, add no-subscription
-    base_packages/           dist-upgrade, base packages, kernel header selection
-    terraform/               HashiCorp repository + terraform package
-    network_bridge/          LAN / DMZ / LAB bridges the guests attach to
-    gpu_passthrough/         IOMMU + VFIO + blacklist + vfio-pci bind
-    vendor_reset/            DKMS module for the AMD reset bug
-    laptop_lid/              logind lid settings
-
-02_vm_provisioning/
-  environments/local/
-    locals.tf                * THE network plan - subnets, gateways, static addresses
-    provider.tf              bpg/proxmox ~> 0.112
-    variables.tf             OPNsense version/checksum, sizing, ISO URLs, create_guests
-    isos.tf                  installer downloads (Proxmox fetches them, not this machine)
-    firewall.tf              the OPNsense instance
-    vms.tf                   guest VMs, gated behind create_guests
-    outputs.tf               interface map, addresses, the static route to add
-  modules/
-    opnsense/                firewall VM: WAN + LAN + DMZ + LAB, boots first
-    ubuntu_cloud/            Ubuntu guests from a cloud image + cloud-init
-    ubuntu_desktop/          GPU-passthrough workstation (off by default)
-    windows_11/
+ansible/
+  ansible.cfg                Central config
+  inventories/
+    production/
+      hosts.yml              All IPs and groups
+      group_vars/            Variables separated by VM group
+  roles/                     Shared tasks
+    desktop_data_volume/     Handles formatting and mounting
+    pve_common/
+    network_bridge/
+  playbooks/                 VM-specific playbooks
+    proxmox/
+      site.yml
+    opnsense/
+      site.yml
+    ubuntu_desktop/
+      10-base.yml
+      site.yml
 ```
 
 The network design, the firewall rules and the OPNsense post-install runbook
@@ -191,7 +149,7 @@ Behaviours fixed along the way:
 ## Settings
 
 Everything you would change lives in
-`01_proxmox_config/inventory/group_vars/proxmox_nodes.yml`. The ones touched most often:
+`ansible/inventory/group_vars/proxmox_nodes.yml`. The ones touched most often:
 
 ```yaml
 gpu_passthrough_pci_ids:        # [vendor:device] pairs from lspci -nn
