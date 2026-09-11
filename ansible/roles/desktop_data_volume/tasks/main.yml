@@ -1,0 +1,37 @@
+---
+- name: Check if secondary disk exists
+  ansible.builtin.stat:
+    path: /dev/sdb
+  register: sdb_disk
+
+- name: Create ext4 filesystem on data volume (only if not already formatted)
+  ansible.builtin.filesystem:
+    fstype: ext4
+    dev: /dev/sdb
+  when: sdb_disk.stat.exists
+
+- name: Create mount point for Data Volume
+  ansible.builtin.file:
+    path: /mnt/data
+    state: directory
+    owner: ubuntu
+    group: ubuntu
+    mode: '0755'
+  when: sdb_disk.stat.exists
+
+- name: Mount Data Volume and add to fstab
+  ansible.posix.mount:
+    path: /mnt/data
+    src: /dev/sdb
+    fstype: ext4
+    state: mounted
+  when: sdb_disk.stat.exists
+
+- name: Ensure user directories link to Data Volume
+  ansible.builtin.file:
+    src: /mnt/data/Projects
+    dest: /home/ubuntu/Projects
+    state: link
+    owner: ubuntu
+    group: ubuntu
+  when: sdb_disk.stat.exists
