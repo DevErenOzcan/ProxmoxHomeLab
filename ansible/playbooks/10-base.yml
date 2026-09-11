@@ -8,10 +8,15 @@
   roles:
     - role: pve_common
       tags: [always]
+    # Order matters: every apt source and signing key is settled before any
+    # package work. base_packages starts with an "apt update", and apt fails
+    # the whole refresh if any single repository is broken - so a stale
+    # third-party key would break package installs long before the role that
+    # owns that key got a chance to fix it. HashiCorp rotates theirs.
     - role: pve_repos
       tags: [base, repos]
+    - role: terraform
+      tags: [base, terraform, repos]
+      when: terraform_install | default(true)
     - role: base_packages
       tags: [base, packages]
-    - role: terraform
-      tags: [base, terraform]
-      when: terraform_install | default(true)

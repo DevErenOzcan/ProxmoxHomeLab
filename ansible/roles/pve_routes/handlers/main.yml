@@ -1,0 +1,5 @@
+---
+- name: Reload network configuration
+  listen: pve_routes_reload
+  ansible.builtin.command: ifreload -a
+  changed_when: true

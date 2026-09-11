@@ -1,0 +1,18 @@
+---
+# Makes the Proxmox host usable as this lab's Ansible controller: the Galaxy
+# collections, the Python libraries they need, and a route into the segments
+# behind the firewall.
+#
+# Runs before everything else because later playbooks depend on it.
+- name: Controller dependencies
+  hosts: proxmox_nodes
+  become: true
+  gather_facts: true
+  roles:
+    - role: pve_common
+      tags: [always]
+    - role: ansible_deps
+      tags: [controller, deps]
+    - role: pve_routes
+      tags: [controller, routes]
+      when: pve_routes_enabled | default(true)

@@ -53,29 +53,44 @@ command -v pveversion >/dev/null 2>&1 || warn "pveversion not found - this may n
 # repositories into their proper state is the pve_repos role's job, not
 # bootstrap's.
 if command -v ansible-playbook >/dev/null 2>&1; then
-    say "[1/4] Ansible already installed: $(ansible-playbook --version | head -1)"
+    say "[1/6] Ansible already installed: $(ansible-playbook --version | head -1)"
 else
-    warn "[1/4] Installing ansible..."
+    warn "[1/6] Installing ansible..."
     apt-get update -y || warn "apt update partially failed (expected, enterprise repo) - continuing."
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         ansible-core python3-debian rsync \
         || die "Could not install ansible-core. Check the 'apt-get update' output."
-    say "[1/4] Installed: $(ansible-playbook --version | head -1)"
+    say "[1/6] Installed: $(ansible-playbook --version | head -1)"
 fi
 
 # --- 3. Place the state tree ------------------------------------------------
 if [ "$SRC_DIR" != "$STATE_DIR" ]; then
     [ -f "$SRC_DIR/ansible/site.yml" ] || die "$SRC_DIR/ansible/site.yml not found. Run this from the repository root."
-    warn "[2/4] Copying state into $STATE_DIR..."
+    warn "[3/6] Copying state into $STATE_DIR..."
     mkdir -p "$STATE_DIR"
     rsync -a --delete "$SRC_DIR/ansible/" "$STATE_DIR/ansible/"
     for extra in terraform docs README.md; do
         if [ -e "$SRC_DIR/$extra" ]; then rsync -a "$SRC_DIR/$extra" "$STATE_DIR/"; fi
     done
 else
-    say "[2/4] State is already in $STATE_DIR."
+    say "[3/6] State is already in $STATE_DIR."
 fi
 [ -f "$STATE_DIR/ansible/site.yml" ] || die "$STATE_DIR/ansible/site.yml not found."
+
+# --- 3b. Galaxy collections -------------------------------------------------
+# site.yml uses ansibleguy.opnsense modules. Ansible resolves module names when
+# it PARSES a playbook, not when it runs the task, so a missing collection
+# breaks site.yml outright - even the syntax check below. That is why this sits
+# here, before any playbook runs, rather than in a role.
+REQ="$STATE_DIR/ansible/requirements.yml"
+if [ -f "$REQ" ]; then
+    if ansible-galaxy collection list 2>/dev/null | grep -q "ansibleguy.opnsense"; then
+        say "[4/6] Galaxy collections already installed."
+    else
+        warn "[4/6] Installing Galaxy collections..."
+        ansible-galaxy collection install -r "$REQ"             || die "Could not install the collections. Check the host's internet access."
+    fi
+fi
 
 # --- 4. The pve-state shortcut ----------------------------------------------
 cat > /usr/local/bin/pve-state <<PVESTATE
@@ -88,12 +103,12 @@ cd "$STATE_DIR/ansible" || exit 1
 exec ansible-playbook site.yml "\$@"
 PVESTATE
 chmod 0755 /usr/local/bin/pve-state
-say "[3/4] Shortcut ready: pve-state"
+say "[5/6] Shortcut ready: pve-state"
 
 # --- 5. Verify / optionally run ---------------------------------------------
 cd "$STATE_DIR/ansible"
 ansible-playbook site.yml --syntax-check >/dev/null || die "site.yml has a syntax error."
-say "[4/4] site.yml syntax verified."
+say "[6/6] site.yml syntax verified."
 
 case "$MODE" in
     apply) warn "Applying site.yml..."; exec ansible-playbook site.yml ;;

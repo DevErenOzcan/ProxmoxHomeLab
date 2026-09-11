@@ -1,0 +1,42 @@
+---
+# Static routes on the host, written into the vmbr0 stanza so they survive a
+# reboot, and applied immediately so the current run can use them.
+
+- name: pve_routes | Persist the routes in /etc/network/interfaces
+  ansible.builtin.blockinfile:
+    path: /etc/network/interfaces
+    marker: "# {mark} ANSIBLE MANAGED ROUTE {{ item.destination }}"
+    insertbefore: '^source\s'
+    block: |
+      # {{ item.comment | default('managed by proxmox-homelab') }}
+      up ip route add {{ item.destination }} via {{ item.gateway }} || true
+      down ip route del {{ item.destination }} via {{ item.gateway }} || true
+  loop: "{{ pve_routes }}"
+  loop_control:
+    label: "{{ item.destination }} via {{ item.gateway }}"
+
+- name: pve_routes | Which routes are already in the kernel
+  ansible.builtin.command: ip route show
+  register: pve_routes_current
+  changed_when: false
+  check_mode: false
+
+# blockinfile only edits the file; the running kernel needs telling too, and
+# ifreload would bounce every interface just for a route.
+- name: pve_routes | Add the routes to the running kernel
+  ansible.builtin.command: >-
+    ip route replace {{ item.destination }} via {{ item.gateway }}
+  loop: "{{ pve_routes }}"
+  loop_control:
+    label: "{{ item.destination }} via {{ item.gateway }}"
+  when:
+    - not ansible_check_mode
+    - item.destination ~ ' via ' ~ item.gateway not in pve_routes_current.stdout
+  changed_when: true
+
+- name: pve_routes | Reachability note
+  ansible.builtin.debug:
+    msg: >-
+      Routes point at {{ pve_routes | map(attribute='gateway') | unique | join(', ') }}.
+      They only carry traffic once OPNsense is up and its WAN rule allows
+      192.168.1.0/24 to reach the lab segments - see docs/network.md.

@@ -9,8 +9,10 @@
 #   ansible-playbook site.yml -e pve_reboot_after_converge=true
 #
 - import_playbook: playbooks/10-base.yml
+- import_playbook: playbooks/05-controller.yml
 - import_playbook: playbooks/15-storage.yml
 - import_playbook: playbooks/20-network.yml
 - import_playbook: playbooks/30-gpu.yml
 - import_playbook: playbooks/40-laptop.yml
+- import_playbook: playbooks/50-firewall-config.yml
 - import_playbook: playbooks/99-reboot.yml

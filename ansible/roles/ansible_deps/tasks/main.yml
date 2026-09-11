@@ -1,0 +1,37 @@
+---
+# The Proxmox host is the Ansible controller for everything in this lab, so it
+# needs the collections and Python libraries locally. Guests are configured
+# from here too, which is why sshpass and the ISO tooling live here.
+
+- name: ansible_deps | Python libraries and helper tools
+  ansible.builtin.apt:
+    name: "{{ ansible_deps_packages }}"
+    state: present
+
+- name: ansible_deps | Which collections are installed
+  ansible.builtin.command: ansible-galaxy collection list
+  register: ansible_deps_installed
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+# ansible-galaxy always reports changed, so the install is gated on the
+# collection actually being absent.
+- name: ansible_deps | Install the collections
+  ansible.builtin.command: >-
+    ansible-galaxy collection install
+    -r {{ ansible_deps_requirements }}
+    -p {{ ansible_deps_collections_path }}
+    {{ '--force' if ansible_deps_force else '' }}
+  register: ansible_deps_galaxy
+  changed_when: "'Installing' in ansible_deps_galaxy.stdout"
+  when: >-
+    ansible_deps_force
+    or 'ansibleguy.opnsense' not in (ansible_deps_installed.stdout | default(''))
+
+- name: ansible_deps | Collections present
+  ansible.builtin.debug:
+    msg: >-
+      {{ (ansible_deps_installed.stdout_lines | default([]))
+         | select('search', 'ansibleguy')
+         | list | default(['(freshly installed)'], true) }}

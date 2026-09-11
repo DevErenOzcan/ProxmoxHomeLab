@@ -81,7 +81,9 @@ run_playbook() {
     local extra="$1"
     local args=""
     if [ ${#PASSTHRU[@]} -gt 0 ]; then args="$(quote_args "${PASSTHRU[@]}")"; fi
-    pssh "cd $STATE_DIR/ansible && ansible-playbook $PLAYBOOK $extra$args"
+    # pssh_secrets forwards the OPNsense API credentials from .env as
+    # environment variables; the firewall role reads them with lookup('env').
+    pssh_secrets "cd $STATE_DIR/ansible && ansible-playbook $PLAYBOOK $extra$args"
 }
 
 do_action() {

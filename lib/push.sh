@@ -52,6 +52,13 @@ MIRROR_PATHS="${MIRROR_PATHS:-ansible terraform docs}"
 # Copied but never deleted.
 COPY_PATHS="${COPY_PATHS:-bootstrap.sh README.md}"
 
+# Secrets forwarded from .env into the remote shell's environment. They are
+# piped on stdin, so they never appear in argv, in ps output, or on the host's
+# disk - .env itself is deliberately never copied over. Lower-case keys in
+# .env become upper-case environment variables, which is what the playbooks
+# read with lookup('env', ...).
+FORWARD_ENV_KEYS="${FORWARD_ENV_KEYS:-opnsense_api_key opnsense_api_secret}"
+
 # Everything Terraform generates on the host. rsync does not delete excluded
 # files (that would need --delete-excluded), so state, the provider lock file
 # and tfvars survive every push.
@@ -135,6 +142,39 @@ pssh_pw() {
     load_password
     printf '%s\n' "$HOMELAB_PASSWORD" | pssh "read -r PW
 $1"
+}
+
+# Reads FORWARD_ENV_KEYS out of .env as KEY=VALUE lines. Missing keys are
+# skipped rather than exported empty, so a playbook can tell "not configured"
+# from "configured as blank".
+collect_env_secrets() {
+    local k v
+    [ -f "$ENV_FILE" ] || return 0
+    for k in $FORWARD_ENV_KEYS; do
+        v="$(sed -n "s/^${k}=//p" "$ENV_FILE" | tr -d '
+')"
+        if [ -n "$v" ]; then
+            printf '%s=%s
+' "$(printf '%s' "$k" | tr '[:lower:]' '[:upper:]')" "$v"
+        fi
+    done
+}
+
+# Run a remote command with those secrets exported into its environment.
+pssh_secrets() {
+    local secrets
+    secrets="$(collect_env_secrets)"
+    if [ -z "$secrets" ]; then
+        pssh "$1"
+        return
+    fi
+    printf '%s__SECRETS_END__
+' "$secrets" | pssh 'while IFS= read -r __l; do
+    [ "$__l" = "__SECRETS_END__" ] && break
+    export "$__l"
+done
+unset __l
+'"$1"
 }
 
 # --------------------------------------------------------------------------

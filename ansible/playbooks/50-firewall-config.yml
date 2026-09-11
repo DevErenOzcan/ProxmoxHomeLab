@@ -1,0 +1,13 @@
+---
+# Configures the OPNsense firewall over its REST API.
+#
+# Separate from the host playbooks because the target is a guest, not the
+# Proxmox host - but it still runs FROM the host, which is where the API is
+# reachable and where the collections are installed.
+- name: Firewall configuration
+  hosts: proxmox_nodes
+  become: true
+  gather_facts: false
+  tags: [firewall, opnsense]
+  roles:
+    - role: opnsense_config
