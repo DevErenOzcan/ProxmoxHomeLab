@@ -1,0 +1,8 @@
+---
+# Full desired state of the guest VMs.
+# This playbook configures the guests created by Terraform.
+#
+# Usage:
+#   ./step3_vm_config.sh
+#
+- import_playbook: playbooks/10-base.yml
