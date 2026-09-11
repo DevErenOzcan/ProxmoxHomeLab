@@ -71,6 +71,9 @@ module "ubuntu_desktop_vm" {
   memory    = var.desktop_memory
   disk_size = var.desktop_disk
 
+  data_volume_id = var.data_volume_id
+  data_disk_size = var.data_disk_size
+
   # No cloud-init on an installer ISO, so the address comes from an OPNsense
   # DHCP reservation against this MAC. locals.addresses.ubuntu_desktop
   # (10.10.10.11) is the one to reserve.
