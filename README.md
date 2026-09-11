@@ -10,194 +10,71 @@ AMD Ryzen 7 5800H laptop).
 
 ## Architecture: why it works this way
 
-Development happens on Windows, but **Ansible cannot act as a control node on
-Windows**. So the model is:
+Development and execution happen on your local machine (WSL, Git Bash, Linux, or macOS). Ansible and Terraform connect directly to the Proxmox host to apply the configuration.
 
 ```
-Windows (this repo)              Proxmox host (192.168.1.200)
-───────────────────              ────────────────────────────
-edit ansible/
-        │
-        │  ./state_push_*.sh   (tar + ssh, single connection)
-        ▼
-                                 /opt/proxmox-homelab/ansible
-                                         │
-                                         │ ansible-playbook site.yml
-                                         │ (connection: local)
-                                         ▼
-                                 the host configures itself
+Local Machine (WSL/Linux)        Proxmox host (192.168.1.200)
+─────────────────────────        ────────────────────────────
+run_ansible.sh           ──SSH─▶ configures the host OS (connection: remote)
+run_terraform.sh         ──API─▶ provisions guests via Proxmox API
 ```
-
-Ansible runs **on** the host. The Windows side only pushes files. The transfer
-uses `tar | ssh` (no local `rsync` required) and the host side mirrors the tree
-exactly with `rsync --delete`.
-
-Terraform works the same way, for a different reason: its endpoint is the
-host's own loopback, so the Proxmox API never leaves the box. Two entry points,
-one shared transport in `lib/push.sh`:
 
 | Script | Drives | Applies |
 |---|---|---|
-| `./state_push_ansible.sh` | Ansible | Host OS state: repos, packages, bridges, GPU, lid |
-| `./state_push_terraform.sh` | Terraform | Guests: the firewall VM and the VMs behind it |
-
-Neither one needs you to log in to the host.
+| `./run_ansible.sh` | Ansible | Host OS state & Guest VM configurations |
+| `./run_terraform.sh` | Terraform | Guests: the firewall VM and the VMs behind it |
 
 ---
 
 ## Quick start
 
-### 1. First-time setup (once)
+### 1. Prerequisites
+You need **Ansible** and **Terraform** installed on your local machine (WSL, Git Bash, Linux, or macOS). Ansible cannot act as a control node natively on Windows.
 
+Install the required Ansible collections:
 ```bash
-./state_push_ansible.sh --bootstrap
+ansible-galaxy collection install -r 01_proxmox_config/requirements.yml
 ```
 
-This pushes the files to the host, runs `bootstrap.sh` there, installs
-`ansible-core`, places the state under `/opt/proxmox-homelab`, creates the
-`pve-state` shortcut, and verifies `site.yml` syntax.
+Ensure you have passwordless SSH access to the Proxmox host (`192.168.1.200`) as `root` from your local machine.
 
-`bootstrap.sh` does **nothing else**. Repository fixes, GRUB, GPU, DKMS and lid
-settings all live in Ansible roles now.
+### 2. Execution Steps
 
-### 2. See what would change (changes nothing)
+Instead of running individual playbooks or Terraform commands manually, the project is structured into three fundamental components. You can execute them in order using the root wrapper scripts:
 
+**Adım 1: Proxmox Host Konfigürasyonu (Ansible)**
 ```bash
-./state_push_ansible.sh --check
+./step1_proxmox_config.sh
 ```
 
-### 3. Apply the host state
-
+**Adım 2: Sanal Makine Kurulumları (Terraform)**
 ```bash
-./state_push_ansible.sh
+# terraform init might be required on first run inside 02_vm_provisioning/environments/local
+./step2_vm_provisioning.sh
 ```
+*Note: Make sure to read [docs/network.md](docs/network.md) before provisioning.*
 
-### 3b. Apply the guests
-
+**Adım 3: Sanal Makine Konfigürasyonları (Ansible)**
 ```bash
-./state_push_terraform.sh
-```
-
-It plans first, shows you the plan, then asks. Read
-[docs/network.md](docs/network.md) before the first one.
-
-### 4. Reboot
-
-`./state_push_ansible.sh` reboots the host by itself when a reboot is pending — that is,
-when something left `/run/reboot-required` behind: GRUB, kernel modules, the
-initramfs, or a new kernel from `dist-upgrade`. A converge that changes nothing
-never reboots.
-
-The host is given `pve_reboot_delay_minutes` (1 by default) of notice via
-`shutdown -r +1`, so there is a window to run `shutdown -c` on the host if you
-change your mind.
-
-To apply without rebooting:
-
-```bash
-./state_push_ansible.sh -e pve_reboot_after_converge=false
-```
-
----
-
-## Day-to-day use
-
-**Ansible** — `./state_push_ansible.sh`:
-
-| Argument | What it does |
-|---|---|
-| (none) | Push **and apply** `site.yml` |
-| `--check` | Push + dry run (`--check --diff`), change nothing |
-| `--push` | Push only, run nothing |
-| `--tags gpu` | Unrecognised arguments are passed to `ansible-playbook` |
-| `--watch` | Dry-run automatically on every change |
-| `--watch --run` | ...apply on every change instead |
-| `--bootstrap` | First-time setup: installs ansible on the host |
-| `--shell` | Open a shell on the host |
-| `--install-key` | Set up key-based SSH so no password is needed (once) |
-
-Applying is the default, so the everyday loop is just `./state_push_ansible.sh`.
-`site.yml` is idempotent, so a converge with nothing to do is a no-op — but a
-change to GRUB, kernel modules or the initramfs reboots the host. To skip that
-for one run, add `-e pve_reboot_after_converge=false`.
-
-`--watch` is the one exception to the apply-by-default rule: inheriting it there
-would converge, and possibly reboot, every time your editor saves a file. So
-watching alone dry-runs, and you ask for `--watch --run` explicitly.
-
-**Terraform** — `./state_push_terraform.sh`:
-
-| Argument | What it does |
-|---|---|
-| (none) | Push, plan, ask, apply — firewall + cloud-image guests |
-| `--plan` | Push and plan only |
-| `--no-guests` | Firewall only |
-| `--desktop` | Also build the GPU-passthrough workstation |
-| `--auto` | Apply without asking |
-| `--output` | Print the terraform outputs |
-| `--destroy` | Tear it down (asks twice) |
-| `--no-push` | Use whatever is already on the host |
-
-Unrecognised arguments go straight to `terraform`, so
-`./state_push_terraform.sh --plan -target=module.firewall` works.
-
-On the host itself:
-
-```bash
-pve-state --check --diff      # dry run
-pve-state                     # apply
-pve-state --tags gpu          # one part only
-```
-
-### Live mirroring
-
-`--watch` hashes the contents of `ansible/` every 2 seconds and pushes as soon
-as anything changes:
-
-```bash
-./state_push_ansible.sh --watch             # edit → save → see the plan
-```
-
-```bash
-./state_push_ansible.sh --watch --run       # edit → save → apply
-```
-
-Interval: `WATCH_INTERVAL=5 ./state_push_ansible.sh --watch`.
-
-### Settings
-
-Override with environment variables:
-
-```bash
-PVE_HOST=192.168.1.201 ./state_push_ansible.sh --check
-STATE_DIR=/srv/homelab ./state_push_terraform.sh --plan
-```
-
-### Authentication
-
-Both scripts try an SSH key first. Without one they use the `proxmox_passwd`
-value from the repository's `.env` via `SSH_ASKPASS` — the password never
-reaches the command line or `ps` output. `.env` is not committed, and it is
-never copied to the host either: Terraform gets the password on the remote
-process's stdin, so it stays off the host's disk.
-
-To stop reading the password on every run, install a key:
-
-```bash
-./state_push_ansible.sh --install-key
+./step3_vm_config.sh
 ```
 
 ---
 
 ## Layout
 
-```
-bootstrap.sh                 Installs ansible on the host + places the state. Nothing else.
-state_push_ansible.sh        Push + run Ansible on the host
-state_push_terraform.sh      Push + run Terraform on the host
-lib/push.sh                  Shared transport: ssh auth, tar|ssh mirror, helpers
+The project structure strictly follows the three fundamental components:
 
-ansible/
+```
+step1_proxmox_config.sh      Run Step 1
+step2_vm_provisioning.sh     Run Step 2
+step3_vm_config.sh           Run Step 3
+
+01_proxmox_config/           Phase 1: Proxmox OS configuration (Ansible)
+02_vm_provisioning/          Phase 2: VM creation and networking (Terraform)
+03_vm_config/                Phase 3: VM internal configuration (Ansible)
+
+01_proxmox_config/
   ansible.cfg                Default inventory, roles_path
   site.yml                   Runs every playbook in order
   inventory/
@@ -230,7 +107,7 @@ ansible/
     vendor_reset/            DKMS module for the AMD reset bug
     laptop_lid/              logind lid settings
 
-terraform/
+02_vm_provisioning/
   environments/local/
     locals.tf                * THE network plan - subnets, gateways, static addresses
     provider.tf              bpg/proxmox ~> 0.112
@@ -314,7 +191,7 @@ Behaviours fixed along the way:
 ## Settings
 
 Everything you would change lives in
-`ansible/inventory/group_vars/proxmox_nodes.yml`. The ones touched most often:
+`01_proxmox_config/inventory/group_vars/proxmox_nodes.yml`. The ones touched most often:
 
 ```yaml
 gpu_passthrough_pci_ids:        # [vendor:device] pairs from lspci -nn

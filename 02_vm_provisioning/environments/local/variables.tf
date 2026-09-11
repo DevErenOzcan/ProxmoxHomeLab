@@ -3,7 +3,8 @@
 # ---------------------------------------------------------------------------
 variable "proxmox_endpoint" {
   type        = string
-  description = "Proxmox API endpoint. run_vms.sh sets this to https://127.0.0.1:8006/ because it runs on the host itself."
+  description = "Proxmox API endpoint. Default points to the host IP."
+  default     = "https://192.168.1.200:8006/"
 }
 
 variable "proxmox_username" {
