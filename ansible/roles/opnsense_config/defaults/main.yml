@@ -47,7 +47,7 @@ opnsense_if:
   lab: opt2
 
 opnsense_segments:
-  lan: { cidr: "10.10.10.0/24", gateway: "10.10.10.1", dhcp_from: "10.10.10.100", dhcp_to: "10.10.10.199" }
+  lan: { cidr: "10.10.10.0/24", gateway: "10.10.10.1", dhcp_from: "10.10.10.100", dhcp_to: "10.10.10.245" }
   dmz: { cidr: "10.10.20.0/24", gateway: "10.10.20.1", dhcp_from: "", dhcp_to: "" }
   lab: { cidr: "10.10.30.0/24", gateway: "10.10.30.1", dhcp_from: "10.10.30.100", dhcp_to: "10.10.30.199" }
 
@@ -215,8 +215,7 @@ opnsense_rules:
 # as a resolver. Unbound on the firewall forwards to public resolvers instead.
 opnsense_dns_enabled: true
 opnsense_dns_forwarders:
-  - "1.1.1.1"
-  - "9.9.9.9"
+  - "192.168.1.1"
 
 # --- DHCP -------------------------------------------------------------------
 # OPNsense 25.x removed ISC dhcpd; Dnsmasq serves DHCP here.

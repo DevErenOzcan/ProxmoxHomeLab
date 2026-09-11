@@ -1,0 +1,6 @@
+---
+- name: Configure OPNsense Firewall
+  hosts: opnsense
+  gather_facts: false
+  roles:
+    - opnsense_config
