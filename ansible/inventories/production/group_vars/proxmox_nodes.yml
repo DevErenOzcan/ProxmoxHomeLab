@@ -65,7 +65,7 @@ terraform_apt_suite: "{{ ansible_distribution_release }}"
 #
 # DESTRUCTIVE. The role refuses unless the volume group is unreferenced by
 # Proxmox, unmounted, not in use as swap, and its thin pool is empty.
-pve_storage_reclaim: true
+pve_storage_reclaim: false
 pve_storage_reclaim_vg: "pve-OLD-5807C00D"
 pve_storage_pv: /dev/nvme0n1p3
 pve_storage_target_name: nvme2

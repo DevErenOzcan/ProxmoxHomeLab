@@ -99,7 +99,7 @@ variable "create_desktop" {
 variable "desktop_datastore" {
   type        = string
   description = "Datastore for the workstation's OS and EFI disks"
-  default     = "nvme2"
+  default     = "local-lvm"
 }
 
 variable "desktop_cores" {
@@ -121,7 +121,19 @@ variable "desktop_memory" {
 variable "desktop_disk" {
   type        = number
   description = "Disk in GB for the workstation"
-  default     = 300
+  default     = 40
+}
+
+variable "data_volume_id" {
+  type        = string
+  description = "Physical disk or Datastore ID for the data volume"
+  default     = "/dev/nvme0n1"
+}
+
+variable "data_disk_size" {
+  type        = number
+  description = "Size of the data volume"
+  default     = 500
 }
 
 variable "desktop_mac_address" {
