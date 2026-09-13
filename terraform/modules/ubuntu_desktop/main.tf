@@ -52,6 +52,7 @@ resource "proxmox_virtual_environment_vm" "ubuntu_desktop" {
 
   memory {
     dedicated = var.memory
+    floating  = var.memory
   }
 
   # No emulated display: the picture comes out of the passed-through GPU.
@@ -102,8 +103,9 @@ resource "proxmox_virtual_environment_vm" "ubuntu_desktop" {
     content {
       device = "hostpci${hostpci.key}"
       id     = hostpci.value.device
-      pcie   = hostpci.value.pcie
-      xvga   = hostpci.value.xvga
+      pcie   = hostpci.value.pcie ? true : null
+      rombar = true
+      xvga   = hostpci.value.xvga ? true : null
     }
   }
 
@@ -111,6 +113,7 @@ resource "proxmox_virtual_environment_vm" "ubuntu_desktop" {
     for_each = var.usb_ports
     content {
       host = usb.value
+      usb3 = true
     }
   }
 
