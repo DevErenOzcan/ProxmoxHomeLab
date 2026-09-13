@@ -1,7 +1,10 @@
 ---
-- name: Configure base settings on guests
-  hosts: guests
+- name: Configure base settings on Proxmox nodes
+  hosts: proxmox_nodes
   become: yes
   gather_facts: yes
+  tags: base
   roles:
-    - guest_base
+    - pve_repos
+    - base_packages
+    - terraform
