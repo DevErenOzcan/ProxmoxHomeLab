@@ -73,11 +73,12 @@ resource "proxmox_virtual_environment_vm" "ubuntu_desktop" {
   dynamic "disk" {
     for_each = var.data_volume_id != "" ? [var.data_volume_id] : []
     content {
-      datastore_id = var.datastore_id
-      file_id      = disk.value
-      interface    = "scsi1"
-      size         = var.data_disk_size
-      file_format  = "raw"
+      datastore_id      = startswith(disk.value, "/") ? "" : var.datastore_id
+      path_in_datastore = startswith(disk.value, "/") ? disk.value : null
+      file_id           = startswith(disk.value, "/") ? null : disk.value
+      interface         = "scsi1"
+      size              = var.data_disk_size
+      file_format       = "raw"
     }
   }
 
