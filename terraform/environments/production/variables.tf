@@ -61,18 +61,6 @@ variable "firewall_wan_connected" {
   default     = false
 }
 
-variable "firewall_cores" {
-  type        = number
-  description = "vCPU cores for OPNsense"
-  default     = 4
-}
-
-variable "firewall_memory" {
-  type        = number
-  description = "RAM in MB for OPNsense. Raise to 8192 before turning on Zenarmor + Suricata + Insight together."
-  default     = 4096
-}
-
 # ---------------------------------------------------------------------------
 # Guests
 # ---------------------------------------------------------------------------
@@ -100,36 +88,6 @@ variable "desktop_datastore" {
   type        = string
   description = "Datastore for the workstation's OS and EFI disks"
   default     = "local-lvm"
-}
-
-variable "desktop_cores" {
-  type        = number
-  description = "Cores for the passthrough workstation"
-  default     = 14
-}
-
-variable "desktop_memory" {
-  type        = number
-  description = "RAM for the passthrough workstation (MB)"
-  default     = 16466
-}
-
-variable "desktop_disk" {
-  type        = number
-  description = "Disk in GB for the workstation"
-  default     = 40
-}
-
-variable "data_volume_id" {
-  type        = string
-  description = "Physical disk or Datastore ID for the data volume"
-  default     = "/dev/nvme0n1"
-}
-
-variable "data_disk_size" {
-  type        = number
-  description = "Size of the data volume"
-  default     = 500
 }
 
 variable "desktop_mac_address" {
@@ -207,27 +165,6 @@ variable "guest_ssh_public_key_files" {
 # ---------------------------------------------------------------------------
 # Guest sizing
 # ---------------------------------------------------------------------------
-variable "ubuntu_server_cores" {
-  type        = number
-  description = "vCPU cores for ubuntu-server"
-  default     = 4
-}
-
-variable "ubuntu_server_memory" {
-  type        = number
-  description = <<-EOT
-    RAM in MB for ubuntu-server. The host has 19 GB and OPNsense already holds
-    4 GB, so 8 GB here still leaves room for the desktop workstation later.
-  EOT
-  default     = 8192
-}
-
-variable "ubuntu_server_disk" {
-  type        = number
-  description = "Disk in GB for ubuntu-server. Thin-provisioned, so it costs what it uses."
-  default     = 120
-}
-
 variable "ubuntu_desktop_qcow2_url" {
   type        = string
   description = "Ubuntu Desktop pre-built qcow2 image from linuxcontainers.org"

@@ -69,13 +69,13 @@ variable "disk_size" {
 variable "data_volume_id" {
   description = "ID of the independent data volume to attach (e.g. local-lvm:vm-999-disk-1). If empty, no data volume is attached."
   type        = string
-  default     = ""
+  default     = "/dev/nvme0n1"
 }
 
 variable "data_disk_size" {
   description = "Size of the data disk in GB. Must match the actual size of the independent volume."
   type        = number
-  default     = 300
+  default     = 500
 }
 
 variable "cpu_type" {

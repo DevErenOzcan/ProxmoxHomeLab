@@ -24,10 +24,6 @@ module "ubuntu_server_vm" {
 
   cloud_image_file_id = proxmox_download_file.ubuntu_cloud_image[0].id
 
-  cores     = var.ubuntu_server_cores
-  memory    = var.ubuntu_server_memory
-  disk_size = var.ubuntu_server_disk
-
   ip_address     = "${local.addresses.ubuntu_server}/${local.prefix}"
   gateway        = local.networks.lan.gateway
   network_bridge = local.networks.lan.bridge
@@ -66,13 +62,6 @@ module "ubuntu_desktop_vm" {
   network_bridge = local.networks.lan.bridge
   cloud_image_file_id = proxmox_download_file.ubuntu_desktop_qcow2[0].id
   datastore_id   = var.desktop_datastore
-
-  cores     = var.desktop_cores
-  memory    = var.desktop_memory
-  disk_size = var.desktop_disk
-
-  data_volume_id = var.data_volume_id
-  data_disk_size = var.data_disk_size
 
   # No cloud-init on an installer ISO, so the address comes from an OPNsense
   # DHCP reservation against this MAC. locals.addresses.ubuntu_desktop
