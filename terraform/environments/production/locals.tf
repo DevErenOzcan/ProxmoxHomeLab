@@ -76,7 +76,6 @@ locals {
     cloudflared    = "10.10.20.10" # reserved: the Cloudflare Tunnel container
     ubuntu_server  = "10.10.10.10"
     ubuntu_desktop = "10.10.10.11"
-    windows_11     = "10.10.10.12"
   }
 
   prefix = 24

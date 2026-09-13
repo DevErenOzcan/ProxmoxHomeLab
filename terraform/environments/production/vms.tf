@@ -71,22 +71,4 @@ module "ubuntu_desktop_vm" {
   depends_on = [module.firewall]
 }
 
-# ---------------------------------------------------------------------------
-# Windows 11
-# ---------------------------------------------------------------------------
-# Skipped unless windows_11_iso_url is set to a fresh Microsoft link.
-module "windows_11_vm" {
-  source = "../../modules/windows_11"
-  count  = var.windows_11_iso_url != "" ? 1 : 0
 
-  node_name          = var.node_name
-  vm_id              = 103
-  vm_name            = "windows-11-desktop"
-  ip_address         = "${local.addresses.windows_11}/${local.prefix}"
-  gateway            = local.networks.lan.gateway
-  network_bridge     = local.networks.lan.bridge
-  iso_file_id        = proxmox_download_file.windows_11_iso[0].id
-  virtio_iso_file_id = proxmox_download_file.virtio_iso[0].id
-
-  depends_on = [module.firewall]
-}

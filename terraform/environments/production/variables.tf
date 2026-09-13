@@ -177,18 +177,4 @@ variable "ubuntu_desktop_qcow2_sha256" {
   default     = "14bdc8f2f3fd6b964b3932507611dd00ab45570b9860e7ce9e02d83d049b20af"
 }
 
-variable "virtio_iso_url" {
-  type        = string
-  description = "VirtIO driver ISO, needed for Windows to see its disk"
-  default     = "https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso"
-}
 
-variable "windows_11_iso_url" {
-  type        = string
-  description = <<-EOT
-    Windows 11 ISO URL. No default on purpose: Microsoft's evaluation links
-    expire about 24 hours after they are generated, so a committed URL is
-    always stale. Empty means "skip the Windows guest entirely".
-  EOT
-  default     = ""
-}
