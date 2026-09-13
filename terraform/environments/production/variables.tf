@@ -200,7 +200,12 @@ variable "guest_ssh_public_key_files" {
     key here (or run ./state_push_ansible.sh --install-key first and point at
     that) to reach them directly.
   EOT
-  default     = ["/root/.ssh/id_rsa.pub", "/root/.ssh/id_ed25519.pub"]
+  default     = [
+    "/root/.ssh/id_rsa.pub",
+    "/root/.ssh/id_ed25519.pub",
+    "~/.ssh/id_rsa.pub",
+    "~/.ssh/id_ed25519.pub"
+  ]
 }
 
 # ---------------------------------------------------------------------------
