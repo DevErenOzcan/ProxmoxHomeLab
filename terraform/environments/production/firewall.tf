@@ -22,9 +22,6 @@ module "firewall" {
   dmz_bridge = local.networks.dmz.bridge
   lab_bridge = local.networks.lab.bridge
 
-  cores  = var.firewall_cores
-  memory = var.firewall_memory
-
   # false until the console has assigned interfaces and set WAN to
   # 192.168.1.201. See the comment on the variable - the factory default is
   # 192.168.1.1, which collides with the home router.

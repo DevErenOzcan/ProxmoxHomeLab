@@ -47,13 +47,13 @@ variable "cloud_image_file_id" {
 variable "cores" {
   description = "vCPU cores"
   type        = number
-  default     = 2
+  default     = 4
 }
 
 variable "memory" {
   description = "RAM in MB"
   type        = number
-  default     = 4096
+  default     = 8192
 }
 
 variable "disk_size" {
@@ -62,7 +62,7 @@ variable "disk_size" {
     first boot. Thin-provisioned on local-lvm, so it costs only what is used.
   EOT
   type        = number
-  default     = 40
+  default     = 120
 }
 
 variable "datastore_id" {
