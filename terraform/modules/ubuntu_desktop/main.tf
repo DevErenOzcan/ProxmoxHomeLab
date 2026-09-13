@@ -77,7 +77,7 @@ resource "proxmox_virtual_environment_vm" "ubuntu_desktop" {
       path_in_datastore = startswith(disk.value, "/") ? disk.value : null
       file_id           = startswith(disk.value, "/") ? null : disk.value
       interface         = "scsi1"
-      size              = var.data_disk_size
+      size              = startswith(disk.value, "/") ? null : var.data_disk_size
       file_format       = "raw"
     }
   }

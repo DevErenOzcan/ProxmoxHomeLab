@@ -51,13 +51,13 @@ variable "datastore_id" {
 variable "cores" {
   description = "vCPU cores"
   type        = number
-  default     = 12
+  default     = 14
 }
 
 variable "memory" {
   description = "RAM in MB"
   type        = number
-  default     = 16384
+  default     = 16466
 }
 
 variable "disk_size" {
@@ -81,7 +81,7 @@ variable "data_disk_size" {
 variable "cpu_type" {
   description = "'host' is required for passthrough to behave"
   type        = string
-  default     = "host"
+  default     = "x86-64-v2-AES"
 }
 
 # ---------------------------------------------------------------------------
@@ -109,12 +109,7 @@ variable "hostpci_devices" {
   }))
   default = [
     { device = "0000:06:00.0", xvga = true }, # AMD Cezanne iGPU - drives the panel
-    { device = "0000:01:00" },                # NVIDIA RTX 3050 Ti, all functions
-    { device = "0000:06:00.1" },              # Renoir HD Audio
-    { device = "0000:06:00.2" },              # Platform Security Processor
-    { device = "0000:06:00.5" },              # Audio coprocessor
-    { device = "0000:06:00.6" },              # HD Audio controller
-    { device = "0000:03:00.0" },              # MediaTek MT7921 wireless
+    { device = "0000:01:00.0" },              # NVIDIA RTX 3050 Ti, all functions
   ]
 }
 
