@@ -104,18 +104,14 @@ variable "desktop_datastore" {
 
 variable "desktop_cores" {
   type        = number
-  description = "vCPU cores for the workstation"
-  default     = 12
+  description = "Cores for the passthrough workstation"
+  default     = 14
 }
 
 variable "desktop_memory" {
   type        = number
-  description = <<-EOT
-    RAM in MB for the workstation. 16 GB of the host's 19 GB, so this and
-    ubuntu-server (8 GB) plus OPNsense (4 GB) over-commit - fine while they are
-    not all busy, but do not start all three and expect headroom.
-  EOT
-  default     = 16384
+  description = "RAM for the passthrough workstation (MB)"
+  default     = 16466
 }
 
 variable "desktop_disk" {
