@@ -11,8 +11,6 @@
   roles:
     - role: pve_common
       tags: [always]
-    - role: ansible_deps
-      tags: [controller, deps]
     - role: pve_routes
       tags: [controller, routes]
       when: pve_routes_enabled | default(true)
