@@ -43,11 +43,11 @@ variable "opnsense_mirror" {
 variable "opnsense_iso_sha256" {
   type        = string
   description = <<-EOT
-    SHA256 of the COMPRESSED installer (the .img.bz2), because Proxmox verifies
+    SHA256 of the COMPRESSED installer (the .iso.bz2), because Proxmox verifies
     the download before decompressing it. Taken from
     OPNsense-<version>-checksums-amd64.sha256 on the mirror.
   EOT
-  default     = "d975ed876e0650f6a5bf30b2e97218c5eaa370bef6597b19f43e22c1b950d3fc"
+  default     = "95cafedda6d5b22ce832e249dc2309110fbee19f813ad78cf28bb3d387186bfb"
 }
 
 variable "firewall_wan_connected" {

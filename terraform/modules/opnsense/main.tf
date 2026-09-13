@@ -50,7 +50,6 @@ resource "proxmox_virtual_environment_vm" "opnsense" {
 
   disk {
     datastore_id = var.datastore_id
-    import_from  = var.iso_file_id
     interface    = "scsi0"
     size         = var.disk_size
     file_format  = "raw"
@@ -58,7 +57,22 @@ resource "proxmox_virtual_environment_vm" "opnsense" {
     discard      = "on"
   }
 
-  boot_order = ["scsi0"]
+  # Installer media. Left attached on purpose: OPNsense upgrades in place, but
+  # having the ISO there makes a reinstall a two-click job.
+  #
+  # The interface is pinned so boot_order below can name it. Without that the
+  # provider picks one (it chose ide3) and Proxmox ends up booting the CD first
+  # -- which means the reboot straight after installing lands you back in the
+  # installer instead of the system you just installed.
+  cdrom {
+    file_id   = var.iso_file_id
+    interface = var.cdrom_interface
+  }
+
+  # Disk first, CD second. An empty disk has no boot sector, so SeaBIOS falls
+  # through to the CD and the first install still works; once the disk is
+  # bootable it wins and the ISO stops getting in the way.
+  boot_order = ["scsi0", var.cdrom_interface]
 
   # -- net0 -> vtnet0 -- WAN, faces the home network ------------------------
   # Starts DISCONNECTED, and that is not paranoia. A fresh OPNsense boots its
