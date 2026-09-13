@@ -85,6 +85,6 @@ locals {
   # Terraform runs on the Proxmox host, so these paths are the host's. Missing
   # files drop out rather than failing the plan.
   guest_ssh_keys = compact([
-    for f in var.guest_ssh_public_key_files : fileexists(f) ? trimspace(file(f)) : ""
+    for f in var.guest_ssh_public_key_files : try(trimspace(file(f)), "")
   ])
 }
