@@ -51,13 +51,13 @@ variable "datastore_id" {
 variable "cores" {
   description = "vCPU cores"
   type        = number
-  default     = 14
+  default     = 8
 }
 
 variable "memory" {
   description = "RAM in MB"
   type        = number
-  default     = 16466
+  default     = 8*1024
 }
 
 variable "disk_size" {
