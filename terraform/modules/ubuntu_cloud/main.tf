@@ -44,6 +44,7 @@ resource "proxmox_virtual_environment_vm" "this" {
 
   agent {
     enabled = var.agent_enabled
+    timeout = "1m"
   }
 
   # import_from copies the image into the datastore once, at create time.
