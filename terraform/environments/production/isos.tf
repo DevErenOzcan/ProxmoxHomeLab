@@ -81,30 +81,4 @@ resource "proxmox_download_file" "ubuntu_desktop_qcow2" {
   upload_timeout     = 7200
 }
 
-# ---------------------------------------------------------------------------
-# Windows
-# ---------------------------------------------------------------------------
-# Microsoft's evaluation links expire ~24h after they are generated, so there
-# is no usable default. Leave var.windows_11_iso_url empty and both of these
-# are skipped along with the guest itself.
-resource "proxmox_download_file" "virtio_iso" {
-  count = var.windows_11_iso_url != "" ? 1 : 0
 
-  content_type   = "iso"
-  datastore_id   = "local"
-  node_name      = var.node_name
-  url            = var.virtio_iso_url
-  file_name      = "virtio-win.iso"
-  upload_timeout = 3600
-}
-
-resource "proxmox_download_file" "windows_11_iso" {
-  count = var.windows_11_iso_url != "" ? 1 : 0
-
-  content_type   = "iso"
-  datastore_id   = "local"
-  node_name      = var.node_name
-  url            = var.windows_11_iso_url
-  file_name      = "windows-11-installer.iso"
-  upload_timeout = 7200
-}
