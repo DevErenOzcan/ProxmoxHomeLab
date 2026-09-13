@@ -227,10 +227,16 @@ variable "ubuntu_server_disk" {
   default     = 120
 }
 
-variable "ubuntu_desktop_iso_url" {
+variable "ubuntu_desktop_qcow2_url" {
   type        = string
-  description = "Ubuntu Desktop installer ISO - the passthrough workstation gets a real install, not a cloud image"
-  default     = "https://releases.ubuntu.com/26.04/ubuntu-26.04-desktop-amd64.iso"
+  description = "Ubuntu Desktop pre-built qcow2 image from linuxcontainers.org"
+  default     = "https://images.linuxcontainers.org/images/ubuntu/noble/amd64/desktop/20260912_07:42/disk.qcow2"
+}
+
+variable "ubuntu_desktop_qcow2_sha256" {
+  type        = string
+  description = "SHA256 checksum for the qcow2 image"
+  default     = "14bdc8f2f3fd6b964b3932507611dd00ab45570b9860e7ce9e02d83d049b20af"
 }
 
 variable "virtio_iso_url" {

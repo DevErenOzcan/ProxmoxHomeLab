@@ -63,10 +63,11 @@ resource "proxmox_virtual_environment_vm" "ubuntu_desktop" {
 
   disk {
     datastore_id = var.datastore_id
+    import_from  = var.cloud_image_file_id
     interface    = "scsi0"
     size         = var.disk_size
     iothread     = true
-    file_format  = "raw"
+    discard      = "on"
   }
 
   dynamic "disk" {
@@ -86,15 +87,7 @@ resource "proxmox_virtual_environment_vm" "ubuntu_desktop" {
     pre_enrolled_keys = true
   }
 
-  cdrom {
-    file_id   = var.iso_file_id
-    interface = "ide2"
-  }
-
-  # Disk first so the post-install reboot lands in the installed system rather
-  # than back in the installer; an empty disk has no boot sector, so the first
-  # boot still falls through to the CD.
-  boot_order = ["scsi0", "ide2"]
+  boot_order = ["scsi0"]
 
   network_device {
     bridge      = var.network_bridge

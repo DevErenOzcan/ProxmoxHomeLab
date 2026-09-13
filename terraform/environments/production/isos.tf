@@ -68,15 +68,17 @@ resource "proxmox_download_file" "ubuntu_cloud_image" {
 # ---------------------------------------------------------------------------
 # The desktop VM is a GPU-passthrough workstation, so it gets a real installer
 # and a real screen rather than a cloud image. Gated separately - see vms.tf.
-resource "proxmox_download_file" "ubuntu_desktop_iso" {
+resource "proxmox_download_file" "ubuntu_desktop_qcow2" {
   count = var.create_desktop ? 1 : 0
 
-  content_type   = "iso"
-  datastore_id   = "local"
-  node_name      = var.node_name
-  url            = var.ubuntu_desktop_iso_url
-  file_name      = "ubuntu-desktop-amd64.iso"
-  upload_timeout = 7200
+  content_type       = "import"
+  datastore_id       = "local"
+  node_name          = var.node_name
+  url                = var.ubuntu_desktop_qcow2_url
+  file_name          = "ubuntu-desktop-26.04-amd64.qcow2"
+  checksum           = var.ubuntu_desktop_qcow2_sha256
+  checksum_algorithm = "sha256"
+  upload_timeout     = 7200
 }
 
 # ---------------------------------------------------------------------------
