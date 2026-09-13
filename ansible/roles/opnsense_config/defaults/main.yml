@@ -11,7 +11,7 @@
 # in docs/network.md.
 
 # --- connection -------------------------------------------------------------
-opnsense_host: "192.168.1.201"
+opnsense_host: "192.168.1.76"
 opnsense_port: 443
 # Self-signed certificate on a lab firewall; nothing here crosses the internet.
 opnsense_ssl_verify: false
