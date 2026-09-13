@@ -104,7 +104,7 @@ resource "proxmox_virtual_environment_vm" "ubuntu_desktop" {
       device = "hostpci${hostpci.key}"
       id     = hostpci.value.device
       pcie   = hostpci.value.pcie ? true : null
-      rombar = true
+      rombar = false
       xvga   = hostpci.value.xvga ? true : null
     }
   }
