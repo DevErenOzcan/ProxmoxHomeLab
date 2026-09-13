@@ -104,7 +104,7 @@ variable "hostpci_devices" {
   EOT
   type = list(object({
     device = string
-    pcie   = optional(bool, true)
+    pcie   = optional(bool, false)
     xvga   = optional(bool, false)
   }))
   default = [
