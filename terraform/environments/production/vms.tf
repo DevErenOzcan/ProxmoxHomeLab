@@ -64,7 +64,7 @@ module "ubuntu_desktop_vm" {
   vm_id          = 102
   vm_name        = "ubuntu-desktop"
   network_bridge = local.networks.lan.bridge
-  iso_file_id    = proxmox_download_file.ubuntu_desktop_iso[0].id
+  cloud_image_file_id = proxmox_download_file.ubuntu_desktop_qcow2[0].id
   datastore_id   = var.desktop_datastore
 
   cores     = var.desktop_cores

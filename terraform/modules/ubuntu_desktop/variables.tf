@@ -14,9 +14,9 @@ variable "vm_name" {
   default     = "ubuntu-desktop"
 }
 
-variable "iso_file_id" {
-  description = "Ubuntu Desktop installer ISO. A real install, not a cloud image - this machine has a screen."
+variable "cloud_image_file_id" {
   type        = string
+  description = "File ID of the qcow2 image to use for the OS disk"
 }
 
 variable "network_bridge" {
