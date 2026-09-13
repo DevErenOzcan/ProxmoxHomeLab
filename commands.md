@@ -8,8 +8,10 @@ Proxmox sunucusunun temel ayarlarını, depolarını, ağ köprülerini (bridge)
 
 ```bash
 cd ansible
-ansible-playbook -i inventories/production/hosts.yml playbooks/proxmox/site.yml
+ANSIBLE_CONFIG=ansible.cfg ansible-playbook -i inventories/production/hosts.yml playbooks/proxmox/site.yml
 ```
+
+*(Not: Windows üzerinden WSL ile (/mnt/c/...) çalışıyorsanız, dosya yetkilerinden kaynaklı `ansible.cfg` uyarılarını aşmak için komutların başında `ANSIBLE_CONFIG=ansible.cfg` kullanılması zorunludur.)*
 
 *(Not: İlk çalıştırmadan önce `ansible-galaxy collection install -r requirements.yml` komutu ile gerekli Ansible eklentilerini kurduğunuzdan emin olun.)*
 
@@ -30,12 +32,12 @@ Sanal makineler ayağa kalktıktan sonra, işletim sistemi içi ayarları, paket
 **Ubuntu Desktop için:**
 ```bash
 cd ansible
-ansible-playbook -i inventories/production/hosts.yml playbooks/ubuntu_desktop/site.yml
+ANSIBLE_CONFIG=ansible.cfg ansible-playbook -i inventories/production/hosts.yml playbooks/ubuntu_desktop/site.yml
 ```
 *(Bu komut, masaüstü ortamını kurar ve bağımsız Data Volume diskinizi otomatik olarak `/mnt/data` klasörüne mount edip kullanıcı klasörlerinizi symlink ile bağlar.)*
 
 **OPNsense / Firewall için:**
 ```bash
 cd ansible
-ansible-playbook -i inventories/production/hosts.yml playbooks/opnsense/site.yml
+ANSIBLE_CONFIG=ansible.cfg ansible-playbook -i inventories/production/hosts.yml playbooks/opnsense/site.yml
 ```
