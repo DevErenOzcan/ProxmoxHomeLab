@@ -16,11 +16,11 @@
 # resolves. Bump both the version and the checksum together; the checksum
 # lives in OPNsense-<ver>-checksums-amd64.sha256 on the same mirror.
 resource "proxmox_download_file" "opnsense_iso" {
-  content_type            = "iso"
+  content_type            = "import"
   datastore_id            = "local"
   node_name               = var.node_name
-  url                     = "${var.opnsense_mirror}/${var.opnsense_version}/OPNsense-${var.opnsense_version}-dvd-amd64.iso.bz2"
-  file_name               = "opnsense-${var.opnsense_version}-dvd-amd64.iso"
+  url                     = "${var.opnsense_mirror}/${var.opnsense_version}/OPNsense-${var.opnsense_version}-vga-amd64.img.bz2"
+  file_name               = "opnsense-${var.opnsense_version}-vga-amd64.raw"
   checksum                = var.opnsense_iso_sha256
   checksum_algorithm      = "sha256"
   decompression_algorithm = "bz2"
