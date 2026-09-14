@@ -1,0 +1,38 @@
+# =============================================================================
+# The Python environment of the CONTROLLER - the machine that runs
+# ansible-playbook - not of the managed hosts.
+# =============================================================================
+# The controller here is the repo-root virtualenv: ProxmoxHomeLab/.venv,
+# created from WSL/Linux (a Windows venv is useless: ansible has no Windows
+# control node). Fill it with:
+#
+#   ./run_ansible.sh --setup
+#
+# which is just these two commands:
+#
+#   .venv/bin/pip install -r ansible/requirements.txt
+#   .venv/bin/ansible-galaxy collection install -r ansible/requirements.yml
+#
+# WHY THE VENV OWNS ANSIBLE ITSELF, and not only these libraries: apt's
+# /usr/bin/ansible starts with the shebang "#!/usr/bin/python3", an absolute
+# path. Activating a virtualenv therefore cannot change which interpreter
+# ansible runs under - it would keep importing from
+# /usr/lib/python3/dist-packages and would never see anything installed here.
+# The venv's own bin/ansible-playbook is the only way to get this environment,
+# which is what run_ansible.sh executes.
+
+# The controller itself. Pinned on purpose: ansible-core 2.19 replaced the
+# template engine, so an unpinned upgrade can change how the roles' conditionals
+# and asserts evaluate. Upgrade deliberately, then re-run --syntax-check.
+ansible-core==2.21.4
+
+# What the ansibleguy.opnsense modules talk to the OPNsense REST API with.
+# Those modules run on the CONTROLLER (playbooks/opnsense/site.yml uses
+# connection: local), so httpx has to exist in *this* environment. When the
+# same role is driven from the Proxmox host instead
+# (playbooks/proxmox/50-firewall-config.yml), the library comes from apt
+# there - python3-httpx, installed by roles/ansible_deps.
+# A floor, not a pin: the collection only calls base_url/auth/timeout/
+# HTTPTransport, stable across every httpx since 0.23, and --setup does not
+# pass --upgrade, so an existing venv keeps the version it already has.
+httpx>=0.23.0

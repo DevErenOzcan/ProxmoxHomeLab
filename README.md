@@ -29,12 +29,25 @@ run_terraform.sh         ──API─▶ provisions guests via Proxmox API
 ## Quick start
 
 ### 1. Prerequisites
-You need **Ansible** and **Terraform** installed on your local machine (WSL, Git Bash, Linux, or macOS). Ansible cannot act as a control node natively on Windows.
 
-Install the required Ansible collections:
+**Terraform**, and a POSIX shell to drive Ansible from: WSL, Linux or macOS.
+Ansible has no native Windows control node, and a virtualenv created from
+Windows (`Scripts/python.exe`) is useless here - make it from inside WSL.
+
+Ansible itself is *not* installed system-wide. The repo carries its own
+controller environment in `.venv`, pinned by `ansible/requirements.txt`
+(ansible-core plus the API libraries) and `ansible/requirements.yml` (Galaxy
+collections):
+
 ```bash
-ansible-galaxy collection install -r ansible/requirements.yml
+./run_ansible.sh --setup
 ```
+
+That creates `.venv` when missing and fills it from both requirements files.
+It is idempotent - re-run it whenever either file changes.
+
+Copy `.env.example` to `.env`; `run_ansible.sh` exports it into every run,
+which is how the OPNsense API credentials reach the firewall role.
 
 Ensure you have passwordless SSH access to the Proxmox host (`192.168.1.200`) as `root` from your local machine.
 
@@ -219,9 +232,28 @@ default can work.
 
 ## Known gotchas
 
+- **The controller lives in `.venv`, and `run_ansible.sh` is the only way into
+  it.** Two reasons that is a script rather than a documented command. First,
+  apt's `/usr/bin/ansible` starts with the absolute shebang
+  `#!/usr/bin/python3`, so *activating* a virtualenv cannot change which
+  interpreter ansible imports from - it would keep reading
+  `/usr/lib/python3/dist-packages` and never see `.venv`. Only
+  `.venv/bin/ansible-playbook` runs in the venv. Second, `/mnt/c` is world
+  writable, so ansible refuses an `ansible.cfg` found there and runs with no
+  inventory, no `roles_path` and no pipelining; naming the file in
+  `ANSIBLE_CONFIG` is the way out. The wrapper sets both and `cd`s into
+  `ansible/`, because the config's paths are relative to it.
+- **Which python executes a module is decided per group.** `proxmox_nodes`
+  pins the *target's* `/usr/bin/python3`. The `opnsense` group runs on the
+  *controller* - the ansibleguy modules call the REST API, so
+  `playbooks/opnsense/site.yml` uses `connection: local` - and pins
+  `{{ ansible_playbook_python }}`: the venv when started from here, the host's
+  `python3` when `50-firewall-config.yml` drives the same role from pve1.
+  Never hardcode the `.venv` path in inventory; it does not exist on the host.
 - **CRLF.** The repo is edited on Windows and runs on Linux. `.gitattributes`
-  keeps the working tree LF, and `lib/push.sh` additionally strips `\r` from
-  `.yml/.yaml/.cfg/.j2/.sh/.md/.tf` files on the host.
+  keeps the working tree LF (`* text=auto eol=lf`), which matters most for
+  `run_ansible.sh` and anything else shipped to a Linux box: a `\r` in the
+  shebang line fails with "bad interpreter: ^M".
 - **The `find` module's `contains` pattern** is anchored at the start of the
   line (it is not a plain `re.search`). That is why the pattern in `pve_repos`
   is written as `.*enterprise[.]proxmox[.]com.*`.
@@ -229,7 +261,8 @@ default can work.
   Tasks that use `copy` write a plain-text header instead. The variable itself
   is defined in `group_vars` rather than `ansible.cfg`, because the
   `ansible.cfg` setting is deprecated in ansible-core 2.19 and is removed in
-  2.23.
+  2.23 - the pinned core is 2.21.4, i.e. past the deprecation and before the
+  removal.
 - **What `--check` cannot tell you.** In a dry run the repositories are never
   actually written to disk, so PVE and HashiCorp packages do not appear in the
   APT cache. The `base_packages` and `terraform` roles detect this and print an

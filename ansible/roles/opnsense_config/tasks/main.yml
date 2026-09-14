@@ -26,16 +26,17 @@
 
       Create them once in the GUI:
         System -> Access -> Users -> root -> "API keys" -> +
-      That downloads a file with a key and a secret. Put both in .env:
-        opnsense_api_key=...
-        opnsense_api_secret=...
-      state_push_ansible.sh forwards them to the host as environment
-      variables; they never reach the host's disk or its argv.
+      That downloads a file with a key and a secret. Put both in .env,
+      under exactly these names:
+        OPNSENSE_API_KEY=...
+        OPNSENSE_API_SECRET=...
+      run_ansible.sh exports them into the run as environment variables;
+      they never reach a disk on the target or its argv.
   when: not opnsense_have_credentials
 
 - name: opnsense_config | Credentials are required
   ansible.builtin.fail:
-    msg: "opnsense_require_credentials is set, but .env has no opnsense_api_key / opnsense_api_secret."
+    msg: "opnsense_require_credentials is set, but .env has no OPNSENSE_API_KEY / OPNSENSE_API_SECRET."
   when:
     - not opnsense_have_credentials
     - opnsense_require_credentials | default(false) | bool
