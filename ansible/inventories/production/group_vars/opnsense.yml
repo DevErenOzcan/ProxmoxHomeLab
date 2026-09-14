@@ -15,8 +15,8 @@
 # interpreter is running ansible itself, so it follows the environment instead
 # of guessing:
 #
-#   ./run_ansible.sh opnsense   -> <repo>/.venv/bin/python  (httpx from pip)
-#   driven from the Proxmox host -> /usr/bin/python3         (python3-httpx from apt)
+#   run from the repo's .venv    -> <repo>/.venv/bin/python  (httpx from pip)
+#   driven from the Proxmox host -> /usr/bin/python3          (python3-httpx from apt)
 #
 # Never hardcode the .venv path here: it does not exist on the host, and
 # playbooks/proxmox/50-firewall-config.yml applies this same role from there.

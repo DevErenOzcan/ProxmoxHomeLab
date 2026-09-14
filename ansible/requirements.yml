@@ -1,8 +1,11 @@
 ---
 # Galaxy collections the CONTROLLER needs - the machine running
 # ansible-playbook. Install them into the repo's virtualenv with
-# "./run_ansible.sh --setup"; roles/ansible_deps does the same on the Proxmox
-# host for the runs that are driven from there.
+#
+#   .venv/bin/ansible-galaxy collection install -r ansible/requirements.yml
+#
+# roles/ansible_deps does the same on the Proxmox host for the runs that are
+# driven from there.
 #
 # Collections are resolved on the controller (ansible ships the module to the
 # target), so this list has nothing to do with what the managed hosts have.

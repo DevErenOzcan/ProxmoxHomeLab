@@ -30,8 +30,10 @@
       under exactly these names:
         OPNSENSE_API_KEY=...
         OPNSENSE_API_SECRET=...
-      run_ansible.sh exports them into the run as environment variables;
-      they never reach a disk on the target or its argv.
+      Then pass them to the run, from the ansible/ directory:
+        env $(grep '^OPNSENSE_API_' ../.env) ANSIBLE_CONFIG=ansible.cfg           ansible-playbook playbooks/opnsense/site.yml
+      They are read as environment variables, so they never reach a disk on
+      the target or its argv.
   when: not opnsense_have_credentials
 
 - name: opnsense_config | Credentials are required

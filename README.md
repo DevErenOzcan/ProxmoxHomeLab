@@ -15,14 +15,16 @@ Development and execution happen on your local machine (WSL, Git Bash, Linux, or
 ```
 Local Machine (WSL/Linux)        Proxmox host (192.168.1.200)
 ─────────────────────────        ────────────────────────────
-run_ansible.sh           ──SSH─▶ configures the host OS (connection: remote)
-run_terraform.sh         ──API─▶ provisions guests via Proxmox API
+.venv + ansible-playbook ──SSH─▶ configures the host OS (connection: remote)
+terraform                ──API─▶ provisions guests via Proxmox API
 ```
 
-| Script | Drives | Applies |
+| Tool | Run from | Applies |
 |---|---|---|
-| `./run_ansible.sh` | Ansible | Host OS state & Guest VM configurations |
-| `./run_terraform.sh` | Terraform | Guests: the firewall VM and the VMs behind it |
+| `ansible-playbook` (repo `.venv`) | `ansible/` | Host OS state, guest VM configuration, the firewall's API config |
+| `terraform` | `terraform/environments/production/` | Guests: the firewall VM and the VMs behind it |
+
+The exact command lines are in **[commands.md](commands.md)**.
 
 ---
 
@@ -37,17 +39,21 @@ Windows (`Scripts/python.exe`) is useless here - make it from inside WSL.
 Ansible itself is *not* installed system-wide. The repo carries its own
 controller environment in `.venv`, pinned by `ansible/requirements.txt`
 (ansible-core plus the API libraries) and `ansible/requirements.yml` (Galaxy
-collections):
+collections). From the repo root, inside WSL:
 
 ```bash
-./run_ansible.sh --setup
+python3 -m venv .venv
+.venv/bin/pip install -r ansible/requirements.txt
+.venv/bin/ansible-galaxy collection install -r ansible/requirements.yml
 ```
 
-That creates `.venv` when missing and fills it from both requirements files.
-It is idempotent - re-run it whenever either file changes.
+Re-run the last two whenever either requirements file changes; both are
+idempotent. Activate it (`. .venv/bin/activate`) and `ansible-playbook` is the
+venv's own - see the gotchas below for the one environment variable every run
+still needs.
 
-Copy `.env.example` to `.env`; `run_ansible.sh` exports it into every run,
-which is how the OPNsense API credentials reach the firewall role.
+Copy `.env.example` to `.env`. Nothing loads it automatically: the OPNsense
+credentials are passed per run, as shown in [commands.md](commands.md).
 
 Ensure you have passwordless SSH access to the Proxmox host (`192.168.1.200`) as `root` from your local machine.
 
@@ -232,17 +238,21 @@ default can work.
 
 ## Known gotchas
 
-- **The controller lives in `.venv`, and `run_ansible.sh` is the only way into
-  it.** Two reasons that is a script rather than a documented command. First,
-  apt's `/usr/bin/ansible` starts with the absolute shebang
-  `#!/usr/bin/python3`, so *activating* a virtualenv cannot change which
-  interpreter ansible imports from - it would keep reading
-  `/usr/lib/python3/dist-packages` and never see `.venv`. Only
-  `.venv/bin/ansible-playbook` runs in the venv. Second, `/mnt/c` is world
-  writable, so ansible refuses an `ansible.cfg` found there and runs with no
-  inventory, no `roles_path` and no pipelining; naming the file in
-  `ANSIBLE_CONFIG` is the way out. The wrapper sets both and `cd`s into
-  `ansible/`, because the config's paths are relative to it.
+- **`ANSIBLE_CONFIG=ansible.cfg` is not optional.** `/mnt/c` is world writable,
+  so ansible refuses to read an `ansible.cfg` found there - it says so in a
+  warning and then runs with no inventory, no `roles_path` (every role
+  "not found") and no pipelining. Naming the file explicitly bypasses that
+  check. `cd ansible/` first as well: the config's paths are relative to it.
+  The permanent alternative is to stop `/mnt/c` being world writable, with
+  `options = "metadata,umask=22,fmask=111"` under `[automount]` in
+  `/etc/wsl.conf` plus a `wsl --shutdown`.
+- **Which `ansible-playbook` you get depends on the venv.** ansible-core is
+  installed *in* `.venv`, so activating it (or calling
+  `.venv/bin/ansible-playbook`) is what puts you on the pinned version with the
+  API libraries. Outside it you land on apt's `/usr/bin/ansible-playbook`,
+  which begins with the absolute shebang `#!/usr/bin/python3`, imports from
+  `/usr/lib/python3/dist-packages` and cannot see anything in `.venv` -
+  including `httpx`, without which the firewall role fails.
 - **Which python executes a module is decided per group.** `proxmox_nodes`
   pins the *target's* `/usr/bin/python3`. The `opnsense` group runs on the
   *controller* - the ansibleguy modules call the REST API, so
@@ -252,8 +262,8 @@ default can work.
   Never hardcode the `.venv` path in inventory; it does not exist on the host.
 - **CRLF.** The repo is edited on Windows and runs on Linux. `.gitattributes`
   keeps the working tree LF (`* text=auto eol=lf`), which matters most for
-  `run_ansible.sh` and anything else shipped to a Linux box: a `\r` in the
-  shebang line fails with "bad interpreter: ^M".
+  anything shipped to a Linux box: a `\r` in a shebang line fails with
+  "bad interpreter: ^M".
 - **The `find` module's `contains` pattern** is anchored at the start of the
   line (it is not a plain `re.search`). That is why the pattern in `pve_repos`
   is written as `.*enterprise[.]proxmox[.]com.*`.

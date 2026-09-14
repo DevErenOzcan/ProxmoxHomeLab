@@ -4,22 +4,17 @@
 # =============================================================================
 # The controller here is the repo-root virtualenv: ProxmoxHomeLab/.venv,
 # created from WSL/Linux (a Windows venv is useless: ansible has no Windows
-# control node). Fill it with:
-#
-#   ./run_ansible.sh --setup
-#
-# which is just these two commands:
+# control node). Fill it from the repo root with:
 #
 #   .venv/bin/pip install -r ansible/requirements.txt
 #   .venv/bin/ansible-galaxy collection install -r ansible/requirements.yml
 #
 # WHY THE VENV OWNS ANSIBLE ITSELF, and not only these libraries: apt's
 # /usr/bin/ansible starts with the shebang "#!/usr/bin/python3", an absolute
-# path. Activating a virtualenv therefore cannot change which interpreter
-# ansible runs under - it would keep importing from
-# /usr/lib/python3/dist-packages and would never see anything installed here.
-# The venv's own bin/ansible-playbook is the only way to get this environment,
-# which is what run_ansible.sh executes.
+# path, and imports from /usr/lib/python3/dist-packages. Run that one and
+# nothing installed here exists - including httpx. With ansible-core installed
+# in the venv, activating it (or calling .venv/bin/ansible-playbook) is what
+# selects this environment.
 
 # The controller itself. Pinned on purpose: ansible-core 2.19 replaced the
 # template engine, so an unpinned upgrade can change how the roles' conditionals
@@ -32,7 +27,19 @@ ansible-core==2.21.4
 # same role is driven from the Proxmox host instead
 # (playbooks/proxmox/50-firewall-config.yml), the library comes from apt
 # there - python3-httpx, installed by roles/ansible_deps.
-# A floor, not a pin: the collection only calls base_url/auth/timeout/
-# HTTPTransport, stable across every httpx since 0.23, and --setup does not
-# pass --upgrade, so an existing venv keeps the version it already has.
-httpx>=0.23.0
+# The collection only calls base_url/auth/timeout/HTTPTransport, stable across
+# every httpx since 0.23, but the floor is 0.28 deliberately: the venv shipped
+# with httpx 0.23.0 / httpcore 0.15 / h11 0.12 from 2022, and that stack
+# mis-reports a broken server response as "illegal chunk header" pointing at a
+# random offset in the payload. 0.28 (httpcore 1.x, h11 0.16) says
+# "malformed chunk footer", which is what actually happens.
+#
+# For the record, since it cost an afternoon: that error is NOT a client bug.
+# OPNsense 26.7.0 corrupts HTTP/1.1 chunked responses past ~64 KiB, so every
+# HTTP/1.1 client fails identically - curl --http1.1 included - on
+# GET /api/firewall/filter/get (~116 KB), which is what the `rule` module reads
+# before writing anything. 26.7.1 "disable web GUI KTLS use for the time
+# being" is the fix; upgrade the firewall. HTTP/2 is unaffected, but httpx
+# cannot be pushed onto it: httpcore overwrites the SSL context's ALPN list
+# with ["http/1.1", "h2"] and this server honours the client's order.
+httpx>=0.28.0
