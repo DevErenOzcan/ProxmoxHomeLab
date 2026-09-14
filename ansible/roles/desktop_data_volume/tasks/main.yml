@@ -5,7 +5,7 @@
   register: sdb_disk
 
 - name: Create ext4 filesystem on data volume (only if not already formatted)
-  ansible.builtin.filesystem:
+  community.general.filesystem:
     fstype: ext4
     dev: /dev/sdb
   when: sdb_disk.stat.exists

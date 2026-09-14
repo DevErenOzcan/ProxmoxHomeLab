@@ -1,9 +1,18 @@
 ---
-# Default inventory: the playbook runs ON the Proxmox host itself.
-# bootstrap.sh installs this tree under /opt/proxmox-homelab, and
-# state_push_ansible.sh overwrites it on every change. The connection is
-# "local", so no SSH is
-# involved -- ansible configures the machine it is already running on.
+# An alternative inventory for the case where ansible runs ON the Proxmox host
+# instead of from a workstation: clone the repo onto pve1 and pass this file
+# explicitly, because ansible.cfg points at inventories/production (SSH).
+#
+#   ansible-playbook -i ../inventories/local.yml playbooks/proxmox/site.yml
+#
+# The connection is "local", so no SSH is involved and no interpreter is pinned
+# either - discovery finds the host's own /usr/bin/python3, which is where
+# roles/ansible_deps puts python3-httpx.
+#
+# NOTE: this used to be the default. The state_push_ansible.sh / lib/push.sh
+# pair that mirrored the tree into /opt/proxmox-homelab and ran ansible there
+# is gone; the entry point is now ./run_ansible.sh from a WSL/Linux
+# workstation, with the controller in the repo's own .venv.
 all:
   children:
     proxmox_nodes:

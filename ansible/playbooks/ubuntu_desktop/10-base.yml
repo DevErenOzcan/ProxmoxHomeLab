@@ -1,6 +1,6 @@
 ---
 - name: Configure base settings on guests
-  hosts: guests
+  hosts: ubuntu_desktop
   become: yes
   gather_facts: yes
   roles:

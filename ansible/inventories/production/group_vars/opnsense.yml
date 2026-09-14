@@ -1,0 +1,23 @@
+---
+# =============================================================================
+# The firewall group runs ON THE CONTROLLER, not on the firewall.
+# =============================================================================
+# ansible_host for this group (10.10.10.1) is never connected to: the
+# ansibleguy.opnsense modules do not run on OPNsense, they call its REST API,
+# and playbooks/opnsense/site.yml therefore uses "connection: local". The
+# address the API is reached at is opnsense_host
+# (roles/opnsense_config/defaults/main.yml -> 192.168.1.201).
+#
+# So the interpreter that has to be able to "import httpx" is the
+# CONTROLLER's. Interpreter discovery would pick the first system python it
+# finds (/usr/bin/python3), which in a WSL checkout has no httpx - the library
+# lives in the repo's virtualenv. ansible_playbook_python is whatever
+# interpreter is running ansible itself, so it follows the environment instead
+# of guessing:
+#
+#   ./run_ansible.sh opnsense   -> <repo>/.venv/bin/python  (httpx from pip)
+#   driven from the Proxmox host -> /usr/bin/python3         (python3-httpx from apt)
+#
+# Never hardcode the .venv path here: it does not exist on the host, and
+# playbooks/proxmox/50-firewall-config.yml applies this same role from there.
+ansible_python_interpreter: "{{ ansible_playbook_python }}"

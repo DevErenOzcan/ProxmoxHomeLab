@@ -3,6 +3,6 @@
 # This playbook configures the guests created by Terraform.
 #
 # Usage:
-#   ./step3_vm_config.sh
+#   ./run_ansible.sh desktop
 #
 - import_playbook: 10-base.yml
