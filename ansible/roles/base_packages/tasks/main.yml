@@ -10,7 +10,7 @@
 - name: base_packages | Upgrade the system (dist-upgrade)
   ansible.builtin.apt:
     upgrade: dist
-  when: base_packages_dist_upgrade
+  when: base_packages_dist_upgrade | bool
 
 # 7.0.2-6-pve -> 7.0
 - name: base_packages | Build the list of candidate header packages

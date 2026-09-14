@@ -97,7 +97,7 @@
         action: create
         <<: *opn
       register: opnsense_savepoint
-      when: opnsense_use_savepoint
+      when: opnsense_use_savepoint | bool
 
     - name: opnsense_config | Apply the configuration
       block:
@@ -153,7 +153,7 @@
             state: present
             <<: *opn
           loop: "{{ opnsense_dns_forwarders }}"
-          when: opnsense_dns_enabled
+          when: opnsense_dns_enabled | bool
 
         - name: opnsense_config | DHCP pools
           ansibleguy.opnsense.dnsmasq_range:
@@ -168,7 +168,7 @@
           loop_control:
             label: "{{ item.key }}"
           when:
-            - opnsense_dhcp_enabled
+            - opnsense_dhcp_enabled | bool
             - item.value.dhcp_from | length > 0
 
         - name: opnsense_config | DHCP reservations
@@ -182,7 +182,7 @@
           loop: "{{ opnsense_dhcp_reservations }}"
           loop_control:
             label: "{{ item.host }} -> {{ item.ip }}"
-          when: opnsense_dhcp_enabled
+          when: opnsense_dhcp_enabled | bool
 
       rescue:
         - name: opnsense_config | Roll back to the savepoint
@@ -191,7 +191,7 @@
             revision: "{{ opnsense_savepoint.revision | default(omit) }}"
             <<: *opn
           when:
-            - opnsense_use_savepoint
+            - opnsense_use_savepoint | bool
             - opnsense_savepoint.revision is defined
 
         # This used to claim a rollback unconditionally, which was a lie
@@ -205,7 +205,7 @@
                 'Configuration failed. The firewall was rolled back to the
                  savepoint taken at the start of this run, so nothing was left
                  half applied.'
-                if (opnsense_use_savepoint and opnsense_savepoint.revision is defined)
+                if (opnsense_use_savepoint | bool and opnsense_savepoint.revision is defined)
                 else 'Configuration failed, and NO savepoint was taken
                       (opnsense_use_savepoint is false), so whatever had already
                       been applied is still in place. Check the firewall before
@@ -220,7 +220,7 @@
         revision: "{{ opnsense_savepoint.revision | default(omit) }}"
         <<: *opn
       when:
-        - opnsense_use_savepoint
+        - opnsense_use_savepoint | bool
         - opnsense_savepoint.revision is defined
 
 - name: opnsense_config | Dry-run note
