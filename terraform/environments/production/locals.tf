@@ -68,7 +68,7 @@ locals {
   # Guests get static addresses so firewall rules can name them. DHCP pools
   # start at .100 (configured on OPNsense) and are for throwaway guests.
   addresses = {
-    opnsense_wan = "192.168.1.76"
+    opnsense_wan = "192.168.1.201"
     opnsense_lan = local.networks.lan.gateway
     opnsense_dmz = local.networks.dmz.gateway
     opnsense_lab = local.networks.lab.gateway

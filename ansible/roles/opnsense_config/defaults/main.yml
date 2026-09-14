@@ -11,7 +11,7 @@
 # in docs/network.md.
 
 # --- connection -------------------------------------------------------------
-opnsense_host: "192.168.1.76"
+opnsense_host: "192.168.1.201"
 opnsense_port: 443
 # Self-signed certificate on a lab firewall; nothing here crosses the internet.
 opnsense_ssl_verify: false
@@ -24,12 +24,12 @@ opnsense_api_secret: "{{ lookup('env', 'OPNSENSE_API_SECRET') }}"
 
 # --- behaviour --------------------------------------------------------------
 # The rule module drives the os-firewall plugin, so it has to be installed.
-opnsense_install_firewall_plugin: true
+opnsense_install_firewall_plugin: false
 
 # Wrap the run in a savepoint. OPNsense rolls the configuration back on its own
 # if the savepoint is not confirmed within the timeout, which is the difference
 # between "I locked myself out" and "it fixed itself in 60 seconds".
-opnsense_use_savepoint: true
+opnsense_use_savepoint: false
 
 # Remove rules and aliases this repo does not declare. Off by default so the
 # role can be introduced next to hand-made configuration without eating it.

@@ -12,3 +12,5 @@
 # Local
 .idea
 .env
+.venv
+OPNsense.internal_root_apikey.txt
