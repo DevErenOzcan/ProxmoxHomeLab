@@ -3,6 +3,6 @@
 # This playbook configures the guests created by Terraform.
 #
 # Usage:
-#   ./run_ansible.sh desktop
+#   ANSIBLE_CONFIG=ansible.cfg ansible-playbook playbooks/ubuntu_desktop/site.yml
 #
 - import_playbook: 10-base.yml

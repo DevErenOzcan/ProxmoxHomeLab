@@ -16,9 +16,10 @@ opnsense_port: 443
 # Self-signed certificate on a lab firewall; nothing here crosses the internet.
 opnsense_ssl_verify: false
 
-# Credentials arrive as environment variables: run_ansible.sh parses .env and
-# exports OPNSENSE_API_KEY / OPNSENSE_API_SECRET, so they never reach a disk on
-# the target or any argv. The names in .env must match those exactly.
+# Credentials arrive as environment variables, so they never reach a disk on
+# the target or any argv. Nothing loads .env for you - prefix the run with
+# them, from ansible/:
+#   env $(grep '^OPNSENSE_API_' ../.env) ANSIBLE_CONFIG=ansible.cfg #     ansible-playbook playbooks/opnsense/site.yml
 # Create the key once: GUI -> System -> Access -> Users -> root -> API keys -> +
 opnsense_api_key: "{{ lookup('env', 'OPNSENSE_API_KEY') }}"
 opnsense_api_secret: "{{ lookup('env', 'OPNSENSE_API_SECRET') }}"
