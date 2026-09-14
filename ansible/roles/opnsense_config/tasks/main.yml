@@ -90,12 +90,14 @@
     # OPNsense rolls the configuration back on its own if a savepoint is not
     # confirmed in time. That is the difference between "I locked myself out
     # of the firewall" and "it fixed itself a minute later".
-    # - name: opnsense_config | Take a savepoint
-    #   ansibleguy.opnsense.rule:
-    #     action: savepoint
-    #     <<: *opn
-    #   register: opnsense_savepoint
-    #   when: opnsense_use_savepoint
+    # Was commented out, and wrong when it was not: a savepoint is taken with
+    # the savepoint module, not by passing action: savepoint to the rule module.
+    - name: opnsense_config | Take a savepoint
+      ansibleguy.opnsense.savepoint:
+        action: create
+        <<: *opn
+      register: opnsense_savepoint
+      when: opnsense_use_savepoint
 
     - name: opnsense_config | Apply the configuration
       block:
@@ -192,12 +194,24 @@
             - opnsense_use_savepoint
             - opnsense_savepoint.revision is defined
 
-        - name: opnsense_config | Report the rollback
+        # This used to claim a rollback unconditionally, which was a lie
+        # whenever opnsense_use_savepoint was false (the default) - the run
+        # said "nothing was left half applied" while nothing had been
+        # protected at all. Say what actually happened.
+        - name: opnsense_config | Report the failure
           ansible.builtin.fail:
             msg: >-
-              Configuration failed. The firewall was rolled back to the
-              savepoint taken at the start of this run, so nothing was left
-              half applied.
+              {{
+                'Configuration failed. The firewall was rolled back to the
+                 savepoint taken at the start of this run, so nothing was left
+                 half applied.'
+                if (opnsense_use_savepoint and opnsense_savepoint.revision is defined)
+                else 'Configuration failed, and NO savepoint was taken
+                      (opnsense_use_savepoint is false), so whatever had already
+                      been applied is still in place. Check the firewall before
+                      re-running, and consider
+                      -e opnsense_use_savepoint=true.'
+              }}
 
     # Confirming is what stops OPNsense reverting on its own.
     - name: opnsense_config | Confirm the savepoint
