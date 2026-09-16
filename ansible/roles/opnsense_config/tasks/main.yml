@@ -92,12 +92,36 @@
     # of the firewall" and "it fixed itself a minute later".
     # Was commented out, and wrong when it was not: a savepoint is taken with
     # the savepoint module, not by passing action: savepoint to the rule module.
-    - name: opnsense_config | Take a savepoint
-      ansibleguy.opnsense.savepoint:
-        action: create
-        <<: *opn
-      register: opnsense_savepoint
+    #
+    # It also cannot work on OPNsense 26.7 any more, which is why this is
+    # wrapped: the savepoint endpoints went away with the os-firewall plugin
+    # (no longer even an available package - the filter API moved into core,
+    # and core exposes only addRule/setRule/delRule/searchRule/toggleRule/apply).
+    # The collection still posts to /api/firewall/filter/savepoint and gets a
+    # 404. Failing loudly here is deliberate: continuing without the net the
+    # operator asked for is how you end up believing a rollback happened.
+    - name: opnsense_config | Savepoint
       when: opnsense_use_savepoint | bool
+      block:
+        - name: opnsense_config | Take a savepoint
+          ansibleguy.opnsense.savepoint:
+            action: create
+            <<: *opn
+          register: opnsense_savepoint
+
+      rescue:
+        - name: opnsense_config | No savepoint API on this firewall
+          ansible.builtin.fail:
+            msg: >-
+              opnsense_use_savepoint is true, but this firewall has no
+              savepoint API: OPNsense 26.7 dropped it together with the
+              os-firewall plugin, and ansibleguy.opnsense 1.2.16 still calls
+              POST /api/firewall/filter/savepoint (404 Endpoint not found).
+              There is no API-driven rollback left on this version - the
+              restore endpoint is gone too - so the safety net has to be a
+              config backup taken beforehand:
+              GET /api/core/backup/download/this, restored from the GUI if
+              needed. Re-run without -e opnsense_use_savepoint=true.
 
     - name: opnsense_config | Apply the configuration
       block:
@@ -206,11 +230,16 @@
                  savepoint taken at the start of this run, so nothing was left
                  half applied.'
                 if (opnsense_use_savepoint | bool and opnsense_savepoint.revision is defined)
-                else 'Configuration failed, and NO savepoint was taken
-                      (opnsense_use_savepoint is false), so whatever had already
-                      been applied is still in place. Check the firewall before
-                      re-running, and consider
-                      -e opnsense_use_savepoint=true.'
+                else 'Configuration failed and NO savepoint was taken, so
+                      whatever had already been applied is still in place and
+                      live - check the firewall before re-running. Do not
+                      reach for -e opnsense_use_savepoint=true: OPNsense 26.7
+                      has no savepoint API (see the Savepoint block above).
+                      The safety net on this version is a config backup taken
+                      beforehand, GET /api/core/backup/download/this, restored
+                      from the GUI if it comes to that. This role is
+                      idempotent, so re-running after fixing the cause is
+                      safe.'
               }}
 
     # Confirming is what stops OPNsense reverting on its own.

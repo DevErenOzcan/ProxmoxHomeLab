@@ -28,9 +28,12 @@ opnsense_api_secret: "{{ lookup('env', 'OPNSENSE_API_SECRET') }}"
 # The rule module drives the os-firewall plugin, so it has to be installed.
 opnsense_install_firewall_plugin: false
 
-# Wrap the run in a savepoint. OPNsense rolls the configuration back on its own
-# if the savepoint is not confirmed within the timeout, which is the difference
-# between "I locked myself out" and "it fixed itself in 60 seconds".
+# Wrap the run in a savepoint. That WAS the difference between "I locked myself
+# out" and "it fixed itself in 60 seconds" - but it is unavailable on OPNsense
+# 26.7: the savepoint endpoints disappeared with the os-firewall plugin (the
+# filter API is core now and has no savepoint), so the collection's call 404s.
+# Setting this true therefore fails the run on purpose rather than pretending.
+# Verified on 26.7.3 against the API and docs.opnsense.org, 2026-09-14.
 opnsense_use_savepoint: false
 
 # Remove rules and aliases this repo does not declare. Off by default so the
