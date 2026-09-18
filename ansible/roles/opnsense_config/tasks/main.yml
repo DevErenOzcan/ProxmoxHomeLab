@@ -84,7 +84,50 @@
         name: os-firewall-legacy
         action: install
         <<: *opn
-      when: opnsense_install_firewall_plugin
+      when: opnsense_install_firewall_plugin | bool
+
+    # Which interfaces this firewall actually has. Assigning a NIC to OPT1/OPT2
+    # is the one thing the API does not expose (GUI or console only), so a rule
+    # naming an unassigned interface can never succeed - and without this check
+    # it fails once per rule, each time printing a page of httpx internals for
+    # a condition one query answers.
+    - name: opnsense_config | Read the assigned interfaces
+      ansible.builtin.uri:
+        url: "https://{{ opnsense_host }}:{{ opnsense_port }}/api/interfaces/overview/export"
+        method: GET
+        url_username: "{{ opnsense_api_key }}"
+        url_password: "{{ opnsense_api_secret }}"
+        force_basic_auth: true
+        validate_certs: "{{ opnsense_ssl_verify | bool }}"
+        # OPNsense labels this endpoint text/html even though the body is JSON,
+        # so the uri module never fills in .json - the content gets parsed by
+        # hand below. Without return_content there would be nothing to parse.
+        return_content: true
+      register: opnsense_iface_overview
+      changed_when: false
+      check_mode: false
+      no_log: true
+
+    - name: opnsense_config | Every interface the rules name must be assigned
+      vars:
+        opnsense_assigned_ifaces: >-
+          {{ (opnsense_iface_overview.content | default('[]') | from_json)
+             | map(attribute='identifier', default='')
+             | reject('equalto', '') | sort | list }}
+        opnsense_missing_ifaces: >-
+          {{ opnsense_rules | map(attribute='interface') | unique | sort | list
+             | difference(opnsense_assigned_ifaces) }}
+      ansible.builtin.assert:
+        that: opnsense_missing_ifaces | length == 0
+        success_msg: "Interfaces present: {{ opnsense_assigned_ifaces | join(', ') }}"
+        fail_msg: >-
+          These rules name interfaces the firewall does not have:
+          {{ opnsense_missing_ifaces | sort | join(', ') }}.
+          Assigned right now: {{ opnsense_assigned_ifaces | join(', ') }}.
+          Assigning a NIC is not in the API - do it in the GUI under
+          Interfaces / Assignments (add the device, then set its static IPv4 on
+          the interface's own page) or at the console. The addresses are in
+          docs/network.md. Nothing has been changed by this run.
 
     # ---- the net under the trapeze ------------------------------------
     # OPNsense rolls the configuration back on its own if a savepoint is not
@@ -179,13 +222,49 @@
           loop: "{{ opnsense_dns_forwarders }}"
           when: opnsense_dns_enabled | bool
 
+        # The dnsmasq modules resolve an interface by its DISPLAY NAME, not by
+        # the identifier the filter rules use: find_single_link() matches the
+        # option's 'value' ("LAN", "OPT2"), so passing 'lan' comes back as
+        # "Provided interface 'lan' was not found!" even though lan exists.
+        # Read the names off the firewall instead of hardcoding them - they
+        # follow whatever the interface was called when it was assigned.
+        - name: opnsense_config | Read the Dnsmasq interface names
+          ansible.builtin.uri:
+            url: "https://{{ opnsense_host }}:{{ opnsense_port }}/api/dnsmasq/settings/get"
+            method: GET
+            url_username: "{{ opnsense_api_key }}"
+            url_password: "{{ opnsense_api_secret }}"
+            force_basic_auth: true
+            validate_certs: "{{ opnsense_ssl_verify | bool }}"
+            return_content: true
+          register: opnsense_dnsmasq_settings
+          changed_when: false
+          check_mode: false
+          no_log: true
+          when: opnsense_dhcp_enabled | bool
+
+        - name: opnsense_config | Map interface identifiers to Dnsmasq names
+          vars:
+            _dnsmasq_ifaces: "{{ (opnsense_dnsmasq_settings.content | from_json).dnsmasq.interface }}"
+          ansible.builtin.set_fact:
+            opnsense_dnsmasq_if: >-
+              {{ dict(_dnsmasq_ifaces | dict2items | map(attribute='key') | list
+                      | zip(_dnsmasq_ifaces | dict2items | map(attribute='value.value') | list)) }}
+          when: opnsense_dhcp_enabled | bool
+
         - name: opnsense_config | DHCP pools
           ansibleguy.opnsense.dnsmasq_range:
-            interface: "{{ opnsense_if[item.key] }}"
+            interface: "{{ opnsense_dnsmasq_if[opnsense_if[item.key]] }}"
             start_addr: "{{ item.value.dhcp_from }}"
             end_addr: "{{ item.value.dhcp_to }}"
             subnet_mask: "255.255.255.0"
             description: "{{ item.key | upper }} pool"
+            # These ranges are IPv4, so ra_mode is never set - but the module
+            # declares it as a list without a default, turns the unset value
+            # into "" and then compares that against the [] OPNsense stores.
+            # Left out, every single run reports "changed" and rewrites the
+            # range (and reloads dnsmasq) for a field nothing here uses.
+            ra_mode: []
             state: present
             <<: *opn
           loop: "{{ opnsense_segments | dict2items }}"

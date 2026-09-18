@@ -95,6 +95,20 @@ opnsense_rules:
     source_net: HOME_LAN
     destination_net: LAB_NETS
 
+  # SSH from the home network. Enabled 2026-09-17 so the firewall can be
+  # administered and driven by ansible without the console; it is declared here
+  # rather than clicked into the GUI so it survives a converge and is visible
+  # in review. Drop this entry to close it again.
+  - description: "Home LAN may reach this firewall over SSH"
+    interface: "{{ opnsense_if.wan }}"
+    sequence: 12
+    action: pass
+    direction: in
+    protocol: TCP
+    source_net: HOME_LAN
+    destination_net: "(self)"
+    destination_port: 22
+
   # ---- LAN -----------------------------------------------------------------
   - description: "LAN may use the gateway for DNS"
     interface: "{{ opnsense_if.lan }}"
