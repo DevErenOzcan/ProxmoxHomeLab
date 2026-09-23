@@ -9,3 +9,8 @@ pve_routes:
   - destination: "10.10.0.0/16"
     gateway: "192.168.1.201"
     comment: "lab segments, via the OPNsense WAN address"
+
+# Where the unit lives. A systemd unit rather than lines in
+# /etc/network/interfaces: route directives there only take effect inside an
+# iface stanza, and getting that placement wrong fails silently until a reboot.
+pve_routes_unit: /etc/systemd/system/homelab-routes.service

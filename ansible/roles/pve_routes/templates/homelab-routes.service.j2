@@ -1,0 +1,20 @@
+# {{ ansible_managed }}
+[Unit]
+Description=proxmox-homelab static routes into the lab segments
+# The routes point at the firewall's WAN address on vmbr0, so they need the
+# network up first. They do not need the firewall itself to be up: a route to
+# an unreachable gateway is harmless and starts working when it returns.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+{% for r in pve_routes %}
+# {{ r.comment | default('managed by proxmox-homelab') }}
+ExecStart=/usr/sbin/ip route replace {{ r.destination }} via {{ r.gateway }}
+ExecStop=-/usr/sbin/ip route del {{ r.destination }} via {{ r.gateway }}
+{% endfor %}
+
+[Install]
+WantedBy=multi-user.target

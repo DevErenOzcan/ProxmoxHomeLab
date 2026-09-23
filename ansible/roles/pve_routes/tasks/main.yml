@@ -1,42 +1,78 @@
 ---
-# Static routes on the host, written into the vmbr0 stanza so they survive a
-# reboot, and applied immediately so the current run can use them.
+# Static routes on the host, so it can reach the segments behind the firewall
+# as an Ansible controller.
+#
+# These used to be written into /etc/network/interfaces as "up ip route add"
+# lines. That silently did nothing: blockinfile inserted them before the
+# "source" line, which is outside any iface stanza, and ifupdown2 only honours
+# up/down directives that sit INSIDE one. The route worked until the next
+# reboot and then vanished, which is a worse failure than never working -
+# everything is fine for days, then the controller quietly cannot reach a
+# guest any more.
+#
+# A systemd unit avoids the whole question of where in that file a directive
+# belongs, and it is easy to inspect: systemctl status homelab-routes.
 
-- name: pve_routes | Persist the routes in /etc/network/interfaces
+- name: pve_routes | Remove the old interfaces-file route block
   ansible.builtin.blockinfile:
     path: /etc/network/interfaces
     marker: "# {mark} ANSIBLE MANAGED ROUTE {{ item.destination }}"
-    insertbefore: '^source\s'
-    block: |
-      # {{ item.comment | default('managed by proxmox-homelab') }}
-      up ip route add {{ item.destination }} via {{ item.gateway }} || true
-      down ip route del {{ item.destination }} via {{ item.gateway }} || true
+    state: absent
   loop: "{{ pve_routes }}"
   loop_control:
-    label: "{{ item.destination }} via {{ item.gateway }}"
+    label: "{{ item.destination }}"
 
-- name: pve_routes | Which routes are already in the kernel
-  ansible.builtin.command: ip route show
-  register: pve_routes_current
+- name: pve_routes | Install the route unit
+  ansible.builtin.template:
+    src: homelab-routes.service.j2
+    dest: "{{ pve_routes_unit }}"
+    owner: root
+    group: root
+    mode: "0644"
+  register: pve_routes_unit_file
+
+- name: pve_routes | Reload systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: pve_routes_unit_file is changed
+
+- name: pve_routes | Enable and start it
+  ansible.builtin.systemd_service:
+    name: "{{ pve_routes_unit | basename }}"
+    enabled: true
+    state: "{{ 'restarted' if pve_routes_unit_file is changed else 'started' }}"
+  when: not ansible_check_mode
+
+# The unit is what makes the routes survive a reboot; this proves they are in
+# the kernel right now, which is what the rest of this run depends on.
+- name: pve_routes | Confirm the routes are live
+  ansible.builtin.command: "ip route show {{ item.destination }}"
+  register: pve_routes_live
   changed_when: false
+  failed_when: false
   check_mode: false
-
-# blockinfile only edits the file; the running kernel needs telling too, and
-# ifreload would bounce every interface just for a route.
-- name: pve_routes | Add the routes to the running kernel
-  ansible.builtin.command: >-
-    ip route replace {{ item.destination }} via {{ item.gateway }}
   loop: "{{ pve_routes }}"
   loop_control:
-    label: "{{ item.destination }} via {{ item.gateway }}"
+    label: "{{ item.destination }}"
+
+- name: pve_routes | A route did not come up
+  ansible.builtin.fail:
+    msg: >-
+      {{ item.item.destination }} is not in the routing table after starting
+      {{ pve_routes_unit | basename }}. Check: systemctl status
+      {{ pve_routes_unit | basename }}
+  loop: "{{ pve_routes_live.results }}"
+  loop_control:
+    label: "{{ item.item.destination }}"
   when:
     - not ansible_check_mode
-    - item.destination ~ ' via ' ~ item.gateway not in pve_routes_current.stdout
-  changed_when: true
+    - item.stdout | default('') | length == 0
 
 - name: pve_routes | Reachability note
   ansible.builtin.debug:
     msg: >-
-      Routes point at {{ pve_routes | map(attribute='gateway') | unique | join(', ') }}.
-      They only carry traffic once OPNsense is up and its WAN rule allows
-      192.168.1.0/24 to reach the lab segments - see docs/network.md.
+      Routes via {{ pve_routes | map(attribute='gateway') | unique | join(', ') }}
+      are live and will survive a reboot. They only carry traffic while OPNsense
+      is up and its WAN rule lets 192.168.1.0/24 into the lab segments. Note
+      that the firewall does not answer ping on WAN by default - test with a
+      TCP port, not ICMP, or you will misread a working firewall as a dead one.
