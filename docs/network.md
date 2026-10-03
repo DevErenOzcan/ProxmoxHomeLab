@@ -38,6 +38,11 @@ the only way back would be the laptop's own keyboard. Keeping the host on
 `vmbr0` means the recovery console is always reachable at
 `https://192.168.1.200:8006`.
 
+The host has no address on `vmbr1`–`vmbr3`, IPv6 link-local included: the
+`network_bridge` role sets `disable_ipv6` on them. sshd, pveproxy and rpcbind
+listen on every address, so a link-local one would let any guest reach the
+host's 22, 8006 and 111 without crossing the firewall.
+
 ## Why 10.10.x.x
 
 All three internal segments sit inside one `10.10.0.0/16` supernet, so reaching
@@ -218,24 +223,26 @@ from `192.168.1.0/24` is ever evaluated and the rules below never match.
 Everything else inbound stays blocked by the implicit default. Nothing from the
 internet can reach in at all — the home router forwards no ports.
 
-### LAN (`vtnet1`) — order matters
+### LAN (`vtnet1`)
+
+The trusted segment. Every machine on it may reach the home network, the DMZ,
+the LAB and the internet; traffic to the home network leaves NATed as
+`192.168.1.201`. Together with WAN sequence 11 that makes LAN ↔ home two-way.
+Nothing on the DMZ or LAB can open a connection into the LAN — their own
+sequence 30 blocks `LAB_NETS`, which covers `10.10.10.0/24`.
 
 | seq | Action | Source | Destination | Port | Why |
 |---|---|---|---|---|---|
-| 1 | Pass | LAN net | any | any (IPv4) | **Installer default - see below** |
+| 1 | Pass | LAN net | any | any (IPv4) | Installer default |
 | 10 | Pass | 10.10.10.0/24 | 10.10.10.1 | UDP 53 | DNS on the gateway |
-| 11 | Pass | LAN net | any | any (IPv6) | **Installer default - see below** |
-| 20 | **Block** | 10.10.10.0/24 | `HOME_LAN` | any | The isolation requirement |
-| 30 | Block | 10.10.10.0/24 | 10.10.30.0/24 | any | Keep the lab out of reach |
+| 11 | Pass | LAN net | any | any (IPv6) | Installer default |
 | 40 | Pass | 10.10.10.0/24 | 10.10.20.0/24 | any | LAN may use DMZ services |
-| 50 | Pass | 10.10.10.0/24 | any | any | Internet |
+| 50 | Pass | 10.10.10.0/24 | any | any | Home network, LAB, internet |
 
-> **The LAN is not isolated today.** Sequences 1 and 11 are the default LAN
-> rules the OPNsense installer created, and they are kept in the code because
-> they are what runs. Being quick pass-any rules ahead of 20 and 30, they let
-> LAN guests reach the home network and the LAB; 20 and 30 never see LAN
-> traffic. To put the isolation in force, delete both entries from
-> `opnsense_rules` and list their descriptions in `opnsense_unused_rules`.
+Sequences 1 and 11 already say "anything", so 10, 40 and 50 change nothing
+while they exist; they spell out the individual paths. The LAN once had block
+rules at 20 (→ `HOME_LAN`) and 30 (→ LAB) that sat below sequence 1 and never
+matched. They are listed in `opnsense_unused_rules`, so a run removes them.
 
 ### DMZ (`vtnet2`)
 
@@ -260,10 +267,15 @@ be compromised. It may talk to the internet and nothing else.
 
 `LAB_NETS` contains the gateways themselves, so on DMZ and LAB sequence 30 also
 drops ping to the gateway; only DNS (sequence 10) is let through to it.
-Sequence 30 does not affect traffic between two guests on the same segment —
-that never reaches the firewall, it is switched inside the bridge. If you need
-guest-to-guest isolation inside one segment, that is the Proxmox per-VM
-firewall, not OPNsense.
+Sequence 30 never sees traffic between two guests on the same segment — that
+is switched inside the bridge. On the DMZ and LAB the host stops it instead:
+the `network_bridge` role loads a bridge-family nftables table
+(`guest_isolation`, from `/etc/network/guest-isolation.nft` via
+`guest-isolation.service`) that lets a guest exchange frames with the
+firewall's port only (`gateway_port`: `tap100i2`, `tap100i3`). Two DMZ guests
+cannot even ARP for each other. Proxmox's own SDN "isolate ports" is not used
+because it would isolate the firewall's port as well. The LAN has no such rule;
+LAN guests talk to each other directly.
 
 ### NAT
 
@@ -388,8 +400,9 @@ at once.
 
 ## Where Cloudflare fits
 
-`cloudflared` runs in a container on the **DMZ** at `10.10.20.10` and dials
-*out* to Cloudflare on 443. Nothing listens on your home IP, and the home
+Each machine on the **DMZ** runs its services in Docker next to its own
+`cloudflared`, which dials *out* to Cloudflare on 443. (The `10.10.20.10`
+reservation is from an earlier single-container plan.) Nothing listens on your home IP, and the home
 router forwards no ports — that is the whole point of choosing Tunnel over
 public DNS plus port forwarding.
 
@@ -398,6 +411,10 @@ Consequences that are already baked into the rules above:
 - The DMZ can reach the internet (sequence 40) so the tunnel can connect.
 - The DMZ **cannot** initiate into LAN or LAB (sequence 30), so a
   compromised public service is contained.
+- DMZ machines cannot reach each other either (the host's bridge rule), so a
+  compromised machine cannot spread sideways. It is also why every machine
+  needs its own tunnel: a `cloudflared` on one cannot proxy to a service on
+  another.
 - Services you publish should live on the DMZ, not the LAN. If something on the
   LAN must be published, put a reverse proxy in the DMZ and open exactly that
   one destination from DMZ to LAN, rather than relaxing sequence 30.
@@ -405,8 +422,7 @@ Consequences that are already baked into the rules above:
 Adding **Cloudflare Access** in front of a hostname gives it an
 authentication gate (Google/GitHub/e-mail OTP) without touching these rules.
 
-The container itself is not built yet — that is the next step after the
-firewall is up and routing.
+No DMZ machine is built yet.
 
 ## Verifying it actually works
 
@@ -416,16 +432,21 @@ From a guest on the LAN:
 ping -c1 10.10.10.1 && curl -s https://ifconfig.me && echo
 ```
 
-Gateway answers, internet works. Then the part that matters:
+Gateway answers, internet works. The LAN is trusted, so the home network and
+the LAB answer too:
 
 ```bash
-ping -c2 -W2 192.168.1.1; ping -c2 -W2 192.168.1.200
+ping -c2 -W2 192.168.1.1; ping -c2 -W2 10.10.30.1
 ```
 
-Both should **fail**. If either succeeds, sequence 20 on that interface is
-missing or sits below an allow-any rule — order is evaluated top to bottom. On
-the LAN that is exactly the case today: the installer's default rules at
-sequences 1 and 11 (see the LAN table) make both pings succeed.
+Then the part that matters, from a guest on the DMZ or LAB:
+
+```bash
+ping -c2 -W2 192.168.1.1; ping -c2 -W2 10.10.10.11
+```
+
+Both should **fail**. If either succeeds, sequence 20 or 30 on that interface
+is missing or sits below an allow-any rule — order is evaluated top to bottom.
 
 From your own machine on the home network:
 

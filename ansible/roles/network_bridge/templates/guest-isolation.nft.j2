@@ -1,0 +1,19 @@
+#!/usr/sbin/nft -f
+# Managed by ansible (network_bridge role) - edits here are overwritten.
+#
+# On each bridge below a guest may exchange frames only with the firewall's
+# port; a frame between two guest ports is dropped. Flooded frames pass this
+# hook once per egress port, so a guest cannot even ARP for its neighbour.
+
+# Declare, delete, recreate: loading this file twice replaces the table.
+table bridge guest_isolation
+delete table bridge guest_isolation
+
+table bridge guest_isolation {
+	chain forward {
+		type filter hook forward priority 0; policy accept;
+{% for bridge in network_bridges if bridge.gateway_port is defined %}
+		meta ibrname "{{ bridge.name }}" iifname != "{{ bridge.gateway_port }}" oifname != "{{ bridge.gateway_port }}" counter drop
+{% endfor %}
+	}
+}

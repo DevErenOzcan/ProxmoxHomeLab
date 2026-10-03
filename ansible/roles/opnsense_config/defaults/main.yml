@@ -69,9 +69,11 @@ opnsense_aliases:
 
 # --- firewall rules ---------------------------------------------------------
 # Order matters and is expressed by 'sequence'. The policy is asymmetric on
-# purpose: the home network may reach the lab, the lab may not reach the home
-# network. A stateful firewall needs only the inbound direction allowed for
-# that; replies ride the existing state.
+# purpose: LAN is trusted and talks to everything, the home network included,
+# in both directions; DMZ and LAB may reach the internet and nothing else, so
+# nothing there can open a connection into LAN or the home network. A stateful
+# firewall needs only the initiating direction allowed; replies ride the
+# existing state.
 #
 # Rule 1 on WAN is the one that keeps you in the building. Do not remove it
 # without another way to reach the GUI.
@@ -114,15 +116,14 @@ opnsense_rules:
     destination_port: 22
 
   # ---- LAN -----------------------------------------------------------------
-  # The OPNsense installer's own default LAN rules, kept exactly as they run
-  # (decision of 2026-10-03: codify the live state as-is).
+  # The trusted segment (decision of 2026-10-03): every LAN machine may reach
+  # the home network, DMZ, LAB and the internet. Traffic to the home network
+  # leaves NATed as 192.168.1.201. Nothing comes back in unasked: DMZ and LAB
+  # block LAB_NETS at their own sequence 30, which covers LAN.
   #
-  # READ THIS: they sit at sequence 1 and 11, AHEAD of the isolation rules
-  # below, and they are quick pass-any. As long as they exist, LAN guests DO
-  # reach the home network and the LAB segment - sequences 20 and 30 never see
-  # LAN traffic, and the isolation docs/network.md describes is not in force.
-  # To restore it, delete these two entries and put their descriptions in
-  # opnsense_unused_rules; the next run removes them from the firewall.
+  # Sequences 1 and 11 are the OPNsense installer's default LAN rules and
+  # already say "anything"; 10, 40 and 50 below spell out the individual paths
+  # and change nothing while 1 and 11 exist.
   - description: "Default allow LAN to any rule"
     interface: "{{ opnsense_if.lan }}"
     sequence: 1
@@ -152,23 +153,6 @@ opnsense_rules:
     source_net: "{{ opnsense_segments.lan.cidr }}"
     destination_net: "{{ opnsense_segments.lan.gateway }}"
     destination_port: 53
-
-  - description: "LAN must not reach the home network"
-    interface: "{{ opnsense_if.lan }}"
-    sequence: 20
-    action: block
-    direction: in
-    source_net: "{{ opnsense_segments.lan.cidr }}"
-    destination_net: HOME_LAN
-    log: true
-
-  - description: "LAN must not reach the lab segment"
-    interface: "{{ opnsense_if.lan }}"
-    sequence: 30
-    action: block
-    direction: in
-    source_net: "{{ opnsense_segments.lan.cidr }}"
-    destination_net: "{{ opnsense_segments.lab.cidr }}"
 
   - description: "LAN may reach DMZ services"
     interface: "{{ opnsense_if.lan }}"
@@ -262,9 +246,12 @@ opnsense_rules:
     source_net: "{{ opnsense_segments.lab.cidr }}"
     destination_net: any
 
-# Rules to delete from the firewall, by description. Empty: nothing on the
-# firewall is undeclared.
-opnsense_unused_rules: []
+# Rules to delete from the firewall, by description. The two LAN blocks were
+# never in force (sequence 1 matched first) and contradict the LAN policy
+# above; listing them here removes them on the next run.
+opnsense_unused_rules:
+  - "LAN must not reach the home network"
+  - "LAN must not reach the lab segment"
 
 # --- DNS --------------------------------------------------------------------
 # The segments are firewalled off from the home router, so they cannot ask it

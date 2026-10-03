@@ -4,6 +4,10 @@ network_bridge_interfaces_file: /etc/network/interfaces
 # Run "ifreload -a" after a change? If disabled, the bridge only appears after
 # the next reboot.
 network_bridge_reload: true
+# Give the host an IPv6 link-local address on these bridges? Off: the bridges
+# carry guests only, and the host must not be reachable from them except
+# through the firewall.
+network_bridge_host_ipv6: false
 network_bridges:
   - name: vmbr1
     comment: "Isolated Home Lab bridge"

@@ -108,16 +108,21 @@ network_bridges:
     ports: "none"
     stp: "off"     # NOTE: quotes required -- YAML turns bare off/on/no/yes into booleans
     fd: 0
+  # gateway_port: guests on this bridge may exchange frames with this port only,
+  # never with each other. It is OPNsense's NIC on the segment (VM 100 netN ->
+  # tap100iN); it becomes fwpr100pN if that NIC ever gets firewall=1.
   - name: vmbr2
     comment: "DMZ 10.10.20.0/24 - internet-facing services + cloudflared, gateway 10.10.20.1 on vtnet2"
     ports: "none"
     stp: "off"
     fd: 0
+    gateway_port: tap100i2
   - name: vmbr3
     comment: "LAB 10.10.30.0/24 - experiments and quarantine, gateway 10.10.30.1 on vtnet3"
     ports: "none"
     stp: "off"
     fd: 0
+    gateway_port: tap100i3
 
 # --- GPU passthrough (bootstrap [4/10] - [7/10]) ----------------------------
 gpu_passthrough_enabled: true

@@ -22,3 +22,65 @@
   loop_control:
     label: "{{ item.name }}"
   notify: network_bridge_reload_now
+
+# The host has no IPv4 address on these bridges, but the kernel still gives
+# each one an IPv6 link-local address, and sshd, pveproxy and rpcbind listen on
+# it - every guest on the segment reached the host's 22, 8006 and 111 without
+# crossing the firewall (verified from the desktop, 2026-10-03). This turns off
+# only the host's own IPv6 on the bridge; guest frames are still switched.
+# The file is re-read by udev (99-systemd.rules runs systemd-sysctl for every
+# new net device), so the setting returns whenever ifupdown recreates a bridge.
+- name: network_bridge | Keep the host off the guest bridges over IPv6
+  ansible.posix.sysctl:
+    name: "net.ipv6.conf.{{ item.name }}.disable_ipv6"
+    value: "1"
+    sysctl_file: /etc/sysctl.d/60-guest-bridges-no-ipv6.conf
+    sysctl_set: true
+    reload: false
+  loop: "{{ network_bridges }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: not network_bridge_host_ipv6
+
+# Guests on a bridge with a gateway_port must not reach each other. That
+# traffic never leaves the bridge, so OPNsense never sees it; a bridge-family
+# nftables rule on the host drops it instead. Proxmox's own port isolation
+# (SDN "isolate ports") is no use here: it isolates the firewall VM's port as
+# well and cuts the segment off from its gateway.
+- name: network_bridge | Write the guest isolation rules
+  ansible.builtin.template:
+    src: guest-isolation.nft.j2
+    dest: /etc/network/guest-isolation.nft
+    mode: "0644"
+  notify: network_bridge_isolation_reload
+
+- name: network_bridge | Install the unit that loads them at boot
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/guest-isolation.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Drop guest-to-guest traffic on gateway-only bridges
+      # Matching is by interface name, so the bridges need not exist yet. Load
+      # before any guest starts, so none ever runs unisolated.
+      Before=pve-guests.service
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/usr/sbin/nft -f /etc/network/guest-isolation.nft
+      ExecStop=/usr/sbin/nft delete table bridge guest_isolation
+
+      [Install]
+      WantedBy=multi-user.target
+  register: network_bridge_isolation_unit
+  notify: network_bridge_isolation_reload
+
+# A dry run cannot start a unit it has only pretended to install.
+- name: network_bridge | Guest isolation loaded and enabled
+  ansible.builtin.systemd_service:
+    name: guest-isolation.service
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: not (ansible_check_mode and network_bridge_isolation_unit is changed)
