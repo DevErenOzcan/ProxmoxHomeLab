@@ -26,7 +26,7 @@ ansible-core==2.21.4
 # connection: local), so httpx has to exist in *this* environment. When the
 # same role is driven from the Proxmox host instead
 # (playbooks/proxmox/50-firewall-config.yml), the library comes from apt
-# there - python3-httpx, installed by roles/ansible_deps.
+# there - python3-httpx, installed by roles/base_packages.
 # The collection only calls base_url/auth/timeout/HTTPTransport, stable across
 # every httpx since 0.23, but the floor is 0.28 deliberately: the venv shipped
 # with httpx 0.23.0 / httpcore 0.15 / h11 0.12 from 2022, and that stack

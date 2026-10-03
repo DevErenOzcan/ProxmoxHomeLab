@@ -49,12 +49,13 @@ output "reserved_addresses" {
 }
 
 output "next_steps" {
-  description = "Order of operations"
+  description = "Order of operations for a rebuild from scratch (commands.md has the full command lines)"
   value = [
-    "1. ./sync.sh --run --tags network   (creates vmbr1/vmbr2/vmbr3 on the host)",
-    "2. terraform apply                  (firewall VM only)",
-    "3. Open the console in the Proxmox UI and install OPNsense, then follow docs/network.md",
-    "4. Add the static route from output home_router_static_route on the home router",
-    "5. terraform apply -var create_guests=true",
+    "1. playbooks/proxmox/site.yml          (bridges vmbr1/2/3, vfio-pci bindings, storage content types)",
+    "2. terraform apply -var firewall_wan_connected=false -var create_desktop=false   (firewall VM only, WAN unplugged)",
+    "3. Install OPNsense from the Proxmox console and follow docs/network.md, then apply again with the WAN connected",
+    "4. Add the static route from output home_router_static_route (home router, or each client)",
+    "5. playbooks/opnsense/site.yml         (rules, DNS, DHCP over the API)",
+    "6. terraform apply                     (the desktop), then playbooks/ubuntu_desktop/site.yml",
   ]
 }

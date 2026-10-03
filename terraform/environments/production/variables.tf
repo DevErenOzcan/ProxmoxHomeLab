@@ -53,33 +53,27 @@ variable "opnsense_iso_sha256" {
 variable "firewall_wan_connected" {
   type        = bool
   description = <<-EOT
-    Connect the firewall's WAN interface to vmbr0. Leave false for the install:
-    a fresh OPNsense comes up as 192.168.1.1/24 with a DHCP server, which on
-    this home network means it impersonates the router and takes the house
-    offline. Flip to true once the console shows WAN on 192.168.1.201.
+    Connect the firewall's WAN interface to vmbr0. True because the firewall
+    is installed and its WAN is 192.168.1.201 - false here would unplug the
+    running firewall on the next apply.
+
+    REINSTALLING? Pass -var firewall_wan_connected=false until the console
+    shows WAN on 192.168.1.201: a fresh OPNsense comes up as 192.168.1.1/24
+    with a DHCP server, which on this home network means it impersonates the
+    router and takes the house offline (2026-09-09).
   EOT
-  default     = false
+  default     = true
 }
 
 # ---------------------------------------------------------------------------
 # Guests
 # ---------------------------------------------------------------------------
-variable "create_guests" {
-  type        = bool
-  description = <<-EOT
-    Create the cloud-image guests (currently ubuntu-server). On by default:
-    they boot fine before OPNsense is configured, they just cannot reach
-    anything until it is. Turn off with --no-guests on state_push_terraform.sh.
-  EOT
-  default     = true
-}
-
 variable "create_desktop" {
   type        = bool
   description = <<-EOT
-    Create the GPU-passthrough desktop workstation. Needs storage "nvme2",
-    which the pve_storage Ansible role builds from the reclaimed nvme0n1 -
-    state_push_terraform.sh checks for it and says so if it is missing.
+    Create the GPU-passthrough desktop workstation (VM 102). Its OS disk lives
+    on desktop_datastore; its data disk is the whole of the host's nvme0n1,
+    passed through - see modules/ubuntu_desktop.
   EOT
   default     = true
 }
@@ -97,77 +91,16 @@ variable "desktop_mac_address" {
 }
 
 # ---------------------------------------------------------------------------
-# Ubuntu cloud image
-# ---------------------------------------------------------------------------
-variable "ubuntu_cloud_image_url" {
-  type        = string
-  description = <<-EOT
-    Ubuntu cloud image. A dated build on purpose: the floating .../release/
-    path starts serving a new image whenever Canonical publishes one, which
-    would then fail the checksum below. Bump both together, from
-    https://cloud-images.ubuntu.com/releases/26.04/
-  EOT
-  default     = "https://cloud-images.ubuntu.com/releases/26.04/release-20260823/ubuntu-26.04-server-cloudimg-amd64.img"
-}
-
-variable "ubuntu_cloud_image_file_name" {
-  type        = string
-  description = <<-EOT
-    Stored name. Must end in .qcow2: Proxmox accepts only
-    ova|ovf|qcow2|raw|vmdk for the "import" content type, and Canonical's .img
-    is in fact a qcow2 file.
-  EOT
-  default     = "ubuntu-26.04-server-cloudimg-amd64.qcow2"
-}
-
-variable "ubuntu_cloud_image_sha256" {
-  type        = string
-  description = "From SHA256SUMS in the same directory as the image"
-  default     = "8196be9d7958059cb56c6c75c80fdf6cee8a8885bc149ea791d7db1c7ef93035"
-}
-
-# ---------------------------------------------------------------------------
-# Guest credentials
-# ---------------------------------------------------------------------------
-variable "guest_username" {
-  type        = string
-  description = "Cloud-init user created on the Linux guests"
-  default     = "ubuntu"
-}
-
-variable "guest_password" {
-  type        = string
-  description = <<-EOT
-    Password for that user. Empty means key-only, which is the better default
-    as long as guest_ssh_public_key_files finds a key.
-  EOT
-  default     = ""
-  sensitive   = true
-}
-
-variable "guest_ssh_public_key_files" {
-  type        = list(string)
-  description = <<-EOT
-    Public keys to authorise, by path ON THE HOST - Terraform runs there.
-    Missing files are skipped. The Proxmox node's own key is the default, so a
-    fresh clone can always get into its guests from the host; add your laptop's
-    key here (or run ./state_push_ansible.sh --install-key first and point at
-    that) to reach them directly.
-  EOT
-  default     = [
-    "/root/.ssh/id_rsa.pub",
-    "/root/.ssh/id_ed25519.pub",
-    "~/.ssh/id_rsa.pub",
-    "~/.ssh/id_ed25519.pub"
-  ]
-}
-
-# ---------------------------------------------------------------------------
-# Guest sizing
+# Desktop image
 # ---------------------------------------------------------------------------
 variable "ubuntu_desktop_qcow2_url" {
   type        = string
-  description = "Ubuntu Desktop pre-built qcow2 image from linuxcontainers.org"
+  description = <<-EOT
+    Ubuntu Desktop pre-built qcow2 image from linuxcontainers.org - Ubuntu
+    24.04 (noble) despite the "26.04" in the stored file name. VM 102 was
+    built from this exact build; the guest's own changes on top of it are
+    ansible/playbooks/ubuntu_desktop.
+  EOT
   default     = "https://images.linuxcontainers.org/images/ubuntu/noble/amd64/desktop/20260912_07:42/disk.qcow2"
 }
 

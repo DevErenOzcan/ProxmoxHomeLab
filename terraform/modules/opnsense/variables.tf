@@ -92,22 +92,47 @@ variable "wan_mac_address" {
   default     = "02:7A:AA:5D:AD:51"
 }
 
+# The internal legs were left to Proxmox's random BC:24:11 MACs when the VM
+# was created; these are the addresses it ended up with. Pinned so a rebuilt VM
+# presents the same hardware to OPNsense and to anything caching ARP.
+variable "lan_mac_address" {
+  description = "MAC address of net1 (vtnet1, LAN)"
+  type        = string
+  default     = "BC:24:11:40:72:AD"
+}
+
+variable "dmz_mac_address" {
+  description = "MAC address of net2 (vtnet2, DMZ)"
+  type        = string
+  default     = "BC:24:11:97:40:B5"
+}
+
+variable "lab_mac_address" {
+  description = "MAC address of net3 (vtnet3, LAB)"
+  type        = string
+  default     = "BC:24:11:46:18:20"
+}
+
 # ---------------------------------------------------------------------------
 # Sizing
 # ---------------------------------------------------------------------------
 variable "cores" {
-  description = "vCPU cores. Suricata and Zenarmor are the hungry parts."
+  description = <<-EOT
+    vCPU cores. 2 is what the running firewall has. Suricata and Zenarmor are
+    the hungry parts if they are ever turned on.
+  EOT
   type        = number
-  default     = 4
+  default     = 2
 }
 
 variable "memory" {
   description = <<-EOT
-    RAM in MB. 2048 runs a plain router. Raise to 8192 before enabling
-    Zenarmor + Suricata + Insight together, or reporting will OOM.
+    RAM in MB. 2048 runs a plain router, which is what this is. Raise to 8192
+    before enabling Zenarmor + Suricata + Insight together, or reporting will
+    OOM.
   EOT
   type        = number
-  default     = 4096
+  default     = 2048
 }
 
 variable "disk_size" {

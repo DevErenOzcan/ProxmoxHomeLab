@@ -1,34 +1,140 @@
 ---
 # =============================================================================
-# Reaching the guests: everything goes through pve1.
+# The single settings file for the GPU workstation (VM 102, 10.10.10.11).
 # =============================================================================
-# The lab segments sit behind the firewall and only the Proxmox host has a
-# route into 10.10.0.0/16 (roles/pve_routes adds it). A workstation running
-# this playbook has none - the home router is not told about the lab - so the
-# connection is jumped through pve1, which is reachable by key already.
-#
-# Drop this the day the home router carries "10.10.0.0/16 via 192.168.1.201";
-# direct SSH works then and the jump is pure overhead.
-ansible_ssh_common_args: >-
-  -o ProxyJump=root@192.168.1.200
-  -o StrictHostKeyChecking=accept-new
+# What is here is what changed on top of the image VM 102 was built from -
+# linuxcontainers' ubuntu/noble desktop build 20260912_07:42, see
+# terraform/environments/production/isos.tf. The image's own defaults (GDM
+# autologin as ubuntu, NOPASSWD sudo in /etc/sudoers.d/90-incus, the
+# "distrobuilder-..." hostname, netplan's 10-lxc.yaml) are not repeated here.
+# Inventoried from the running guest on 2026-10-03.
 
-# --- Why this playbook cannot run yet (2026-09-17) --------------------------
-# desktop-vm answers ping on 10.10.10.11 - the DHCP reservation works and the
-# ARP entry matches VM 102's net0 (bc:24:11:b8:0e:f8) - but it has no listening
-# port at all: 22, 80, 443, 3389 and 5900 are all closed from pve1.
+ansible_managed: "Managed by proxmox-homelab (ansible) - do not edit by hand"
+
+# --- Reaching it -------------------------------------------------------------
+# Directly: the workstation running ansible carries the route
+# "10.10.0.0/16 via 192.168.1.201" (docs/network.md, "The static route on the
+# home router"). There used to be a ProxyJump through pve1 here, which cannot
+# work while pve1 has no route into the lab of its own (roles/pve_routes).
+ansible_ssh_common_args: "-o StrictHostKeyChecking=accept-new"
+
+# --- SSH ---------------------------------------------------------------------
+# The image ships no openssh-server. It was installed at the console on
+# 2026-09-18 together with this key - the one-time bootstrap in commands.md -
+# and ansible keeps both from then on. The key is the controller's
+# (WSL ~/.ssh/id_ed25519.pub).
+desktop_user: ubuntu
+desktop_authorized_keys:
+  - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMCdb2x7BVEHm0qXNTy2RiEHRV+osCiw7DS5eBQD+yXE ansible-wsl"
+
+# --- Third-party APT repositories ---------------------------------------------
+# content is byte for byte what is on the machine. The Brave keyring is also
+# owned by the brave-keyring package once brave-browser is installed.
+desktop_apt_repos:
+  - name: brave
+    key_url: "https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg"
+    key_path: /usr/share/keyrings/brave-browser-archive-keyring.gpg
+    file: brave-browser-release.list
+    content: |
+      deb [arch=amd64 signed-by=/usr/share/keyrings/brave-browser-archive-keyring.gpg] https://brave-browser-apt-release.s3.brave.com/ stable main
+  - name: docker
+    key_url: "https://download.docker.com/linux/ubuntu/gpg"
+    key_path: /etc/apt/keyrings/docker.asc
+    file: docker.sources
+    content: |
+      Types: deb
+      URIs: https://download.docker.com/linux/ubuntu
+      Suites: noble
+      Components: stable
+      Architectures: amd64
+      Signed-By: /etc/apt/keyrings/docker.asc
+
+# --- Packages ----------------------------------------------------------------
+# Everything installed by hand after the image, in the order it happened
+# (/var/log/apt/history.log). Docker Desktop was tried on 2026-09-22 and
+# removed again the same evening; it is deliberately absent.
+desktop_packages:
+  - net-tools
+  - brave-browser
+  - openssh-server
+  - docker-ce
+  - docker-ce-cli
+  - containerd.io
+  - docker-buildx-plugin
+  - docker-compose-plugin
+  # The image boots linux-image-virtual; the prebuilt NVIDIA modules below
+  # are for the -generic kernel, which is what runs (6.8.0-142-generic).
+  - linux-generic
+  - linux-firmware
+  - brightnessctl
+  - nvidia-driver-595-open
+  - linux-modules-nvidia-595-open-generic
+  - gparted
+  - nmap
+
+desktop_snaps:
+  - name: code
+    classic: true
+  - name: discord
+  - name: proton-vpn
+
+desktop_timezone: Europe/Istanbul
+# nvidia-prime: the AMD iGPU drives the panel, the RTX renders on request.
+desktop_prime_profile: on-demand
+desktop_services_enabled:
+  - docker
+
+# --- GNOME -------------------------------------------------------------------
+# The keys the ubuntu user's own dconf database holds (2026-10-03), installed
+# as SYSTEM defaults (/etc/dconf/db/local.d). The user's values win
+# wherever they exist, so this changes nothing on the running desktop and
+# gives a rebuilt one the same setup. Values are GVariant text, as
+# "dconf dump /" prints them.
 #
-# It never had a way in. VM 102 carries no cloud-init drive (no ciuser, no
-# sshkeys, no ipconfig), which is the same limitation that made the static
-# addressing fail: "local" has no snippets content type, so user_data cannot be
-# attached. And Ubuntu Desktop does not ship openssh-server.
-#
-# It is also a GPU-passthrough workstation (hostpci0 with x-vga=1), so its
-# screen is the physical monitor, not the Proxmox console. One session at that
-# machine is what unblocks the rest:
-#
-#   sudo apt install -y openssh-server
-#   install -d -m 700 -o ubuntu -g ubuntu ~ubuntu/.ssh
-#   # append the controller's public key to ~ubuntu/.ssh/authorized_keys
-#
-# After that, this playbook runs from here through the jump above.
+# Left out on purpose: runtime state (numlock-state, mru-sources,
+# app-picker-layout, window sizes), the RDP certificate paths, and the keys
+# the tiling-assistant extension overrides and restores by itself. RDP also
+# needs credentials, which live in the user's keyring and are set in
+# Settings > System > Remote Desktop - never in this repo.
+desktop_gnome_settings:
+  org/gnome/desktop/datetime:
+    automatic-timezone: "false"
+  org/gnome/desktop/input-sources:
+    sources: "[('xkb', 'tr')]"
+    xkb-options: "@as []"
+  org/gnome/desktop/interface:
+    color-scheme: "'prefer-dark'"
+    gtk-theme: "'Yaru-dark'"
+    icon-theme: "'Yaru'"
+  org/gnome/desktop/peripherals/touchpad:
+    two-finger-scrolling-enabled: "true"
+  org/gnome/desktop/remote-desktop/rdp:
+    enable: "true"
+    view-only: "false"
+  org/gnome/desktop/screensaver:
+    lock-enabled: "false"
+  org/gnome/desktop/session:
+    idle-delay: "uint32 0"
+  org/gnome/settings-daemon/plugins/power:
+    idle-dim: "true"
+    sleep-inactive-ac-timeout: "3600"
+    sleep-inactive-ac-type: "'nothing'"
+  org/gnome/shell:
+    enabled-extensions: "['ding@rastersoft.com', 'ubuntu-dock@ubuntu.com', 'tiling-assistant@ubuntu.com']"
+    favorite-apps: "['org.gnome.Nautilus.desktop', 'brave-browser.desktop', 'snap-store_snap-store.desktop', 'yelp.desktop']"
+  org/gnome/shell/extensions/dash-to-dock:
+    dash-max-icon-size: "48"
+  org/gnome/shell/extensions/tiling-assistant:
+    active-window-hint-color: "'rgb(211,70,21)'"
+    tiling-popup-all-workspace: "true"
+
+# --- Data volume -------------------------------------------------------------
+# The ext4 partition on the passed-through nvme0n1 (sdb1 in the guest),
+# created with gparted on 2026-10-03. As of that day it is empty and NOT yet
+# mounted; the first run of this playbook mounts it and adds it to fstab.
+desktop_data_volume_uuid: 3585be95-8295-4fca-8577-afa62a25fd32
+desktop_data_volume_mountpoint: /mnt/data
+desktop_data_volume_owner: ubuntu
+desktop_data_volume_links:
+  - name: Projects
+    link: /home/ubuntu/Projects

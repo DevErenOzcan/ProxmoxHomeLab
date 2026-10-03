@@ -35,39 +35,15 @@ resource "proxmox_download_file" "opnsense_iso" {
 }
 
 # ---------------------------------------------------------------------------
-# Ubuntu cloud image - the disk the Linux guests boot from
+# Desktop workstation disk image
 # ---------------------------------------------------------------------------
-# This is a disk image, not an installer. It boots straight to a login prompt
-# with cloud-init already applied, which is what makes the static addresses in
-# locals.tf actually take effect.
+# A pre-built Ubuntu Desktop disk (linuxcontainers.org), imported as VM 102's
+# OS disk. It carries no cloud-init, so the guest's address comes from an
+# OPNsense DHCP reservation, not from Terraform. Gated by create_desktop.
 #
-# Two details that will bite if changed carelessly:
-#
-#   * The file is named .qcow2, not .img. Proxmox only accepts
-#     ova|ovf|qcow2|raw|vmdk for the "import" content type, and Ubuntu's .img
-#     really is a qcow2 (its header starts with QFI\xfb), so this renames it to
-#     the truth rather than working around a check.
-#   * The URL pins a dated build. The floating .../release/ path would start
-#     serving a new image the moment Canonical publishes one, and the download
-#     would then fail its checksum. Bump both together.
-resource "proxmox_download_file" "ubuntu_cloud_image" {
-  count = var.create_guests ? 1 : 0
-
-  content_type       = "import"
-  datastore_id       = "local"
-  node_name          = var.node_name
-  url                = var.ubuntu_cloud_image_url
-  file_name          = var.ubuntu_cloud_image_file_name
-  checksum           = var.ubuntu_cloud_image_sha256
-  checksum_algorithm = "sha256"
-  upload_timeout     = 1800
-}
-
-# ---------------------------------------------------------------------------
-# Desktop workstation media
-# ---------------------------------------------------------------------------
-# The desktop VM is a GPU-passthrough workstation, so it gets a real installer
-# and a real screen rather than a cloud image. Gated separately - see vms.tf.
+# The "import" content type only accepts ova|ovf|qcow2|raw|vmdk, which is why
+# the file is stored as .qcow2, and why the "local" storage carries the import
+# content type (ansible/roles/pve_storage).
 resource "proxmox_download_file" "ubuntu_desktop_qcow2" {
   count = var.create_desktop ? 1 : 0
 

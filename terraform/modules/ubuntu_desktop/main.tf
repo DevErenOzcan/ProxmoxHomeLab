@@ -14,18 +14,17 @@ terraform {
 # own USB devices handed straight through. It consumes the vfio-pci bindings
 # that ansible/roles/gpu_passthrough sets up.
 #
-# The passthrough configuration is deliberately unchanged from what this lab
-# ran before. What did change:
+# Every value below mirrors VM 102 as it runs (checked against
+# /etc/pve/qemu-server/102.conf, 2026-10-03). Three of them look like
+# omissions and are not - the provider reads an ABSENT key back as these
+# values, so setting anything else is a permanent plan diff:
 #
-#   * datastore_id is a variable defaulting to nvme2 - the pool built from the
-#     reclaimed nvme0n1. It used to be hardcoded to a storage that no longer
-#     existed, so every apply failed.
-#   * USB ports 1-2 and 3-2 are gone. They do not exist on this machine and
-#     Proxmox refuses to start a VM that claims a missing port.
-#   * The cloud-init initialization block is gone. It never did anything: an
-#     installer ISO carries no cloud-init, so the address it declared was
-#     silently ignored. The MAC is pinned instead, so OPNsense can hold a DHCP
-#     reservation for 10.10.10.11.
+#   * no memory.floating: 102.conf has no balloon key, which reads back as 0
+#   * no rombar on hostpci: an absent rombar reads back as true
+#   * no usb3 on usb: an absent usb3 reads back as false
+#
+# The image carries no cloud-init drive, so the MAC is pinned instead and
+# OPNsense holds a DHCP reservation for 10.10.10.11 against it.
 #
 resource "proxmox_virtual_environment_vm" "ubuntu_desktop" {
   name        = var.vm_name
@@ -52,7 +51,6 @@ resource "proxmox_virtual_environment_vm" "ubuntu_desktop" {
 
   memory {
     dedicated = var.memory
-    floating  = var.memory
   }
 
   # No emulated display: the picture comes out of the passed-through GPU.
@@ -71,6 +69,10 @@ resource "proxmox_virtual_environment_vm" "ubuntu_desktop" {
     discard      = "on"
   }
 
+  # The data disk. An absolute path is a whole host block device passed
+  # through (live: /dev/nvme0n1); anything else is a volume ID on a datastore.
+  # For a passthrough disk the provider reports no file_format, so setting one
+  # is a permanent diff - it is left null there.
   dynamic "disk" {
     for_each = var.data_volume_id != "" ? [var.data_volume_id] : []
     content {
@@ -78,8 +80,8 @@ resource "proxmox_virtual_environment_vm" "ubuntu_desktop" {
       path_in_datastore = startswith(disk.value, "/") ? disk.value : null
       file_id           = startswith(disk.value, "/") ? null : disk.value
       interface         = "scsi1"
-      size              = startswith(disk.value, "/") ? null : var.data_disk_size
-      file_format       = "raw"
+      size              = var.data_disk_size
+      file_format       = startswith(disk.value, "/") ? null : "raw"
     }
   }
 
@@ -104,7 +106,6 @@ resource "proxmox_virtual_environment_vm" "ubuntu_desktop" {
       device = "hostpci${hostpci.key}"
       id     = hostpci.value.device
       pcie   = hostpci.value.pcie ? true : null
-      rombar = false
       xvga   = hostpci.value.xvga ? true : null
     }
   }
@@ -113,7 +114,6 @@ resource "proxmox_virtual_environment_vm" "ubuntu_desktop" {
     for_each = var.usb_ports
     content {
       host = usb.value
-      usb3 = true
     }
   }
 

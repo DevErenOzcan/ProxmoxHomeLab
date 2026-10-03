@@ -3,8 +3,16 @@
 Infrastructure-as-code for a Proxmox homelab. The host's OS-level state is
 managed with **Ansible**; the virtual machines are managed with **Terraform**.
 
-Target host: `pve1` — `192.168.1.200` (Proxmox VE 9 / Debian 13 trixie,
-AMD Ryzen 7 5800H laptop).
+Target host: `pve1` — `192.168.1.200`, node name `proxmox` (Proxmox VE 9 /
+Debian 13 trixie, AMD Ryzen 7 5800H laptop).
+
+What this repo describes, as running on 2026-10-03:
+
+| Machine | Address | Defined by |
+|---|---|---|
+| Proxmox host `proxmox` | 192.168.1.200 | `ansible/playbooks/proxmox` |
+| VM 100 `opnsense-fw` (OPNsense 26.7) | 192.168.1.201 (WAN), 10.10.10/20/30.1 | `terraform/` + `ansible/playbooks/opnsense` |
+| VM 102 `ubuntu-desktop` (Ubuntu 24.04, GPU passthrough) | 10.10.10.11 | `terraform/` + `ansible/playbooks/ubuntu_desktop` |
 
 ---
 
@@ -74,22 +82,24 @@ commands.md                  Cheatsheet for execution commands
 
 terraform/
   environments/
-    production/              Live environment
+    production/              Live environment: VM 100 (firewall), VM 102 (desktop)
   modules/                   Reusable infrastructure blocks
     opnsense/
-    ubuntu_desktop/          Includes detached Data Volume support
-    ubuntu_cloud/
+    ubuntu_desktop/          GPU passthrough, whole-disk data volume (nvme0n1)
 
 ansible/
   ansible.cfg                Central config
   inventories/
     production/
       hosts.yml              All IPs and groups
-      group_vars/            Variables separated by VM group
-  roles/                     Shared tasks
-    desktop_data_volume/     Handles formatting and mounting
-    pve_common/
-    network_bridge/
+      group_vars/            One settings file per group
+  roles/
+    pve_*, base_packages, network_bridge, gpu_passthrough, vendor_reset,
+    laptop_lid, terraform     The Proxmox host
+    opnsense_config           The firewall, over its REST API
+    desktop_base              Desktop: repos, packages, snaps, SSH key, timezone
+    desktop_gnome             Desktop: GNOME settings as dconf system defaults
+    desktop_data_volume       Desktop: mounts the data disk by UUID, never formats
   playbooks/                 VM-specific playbooks
     proxmox/
       site.yml
@@ -104,10 +114,6 @@ The network design, the firewall rules and the OPNsense post-install runbook
 live in [docs/network.md](docs/network.md). Read that before the first
 `terraform apply`.
 
-[docs/commands.md](docs/commands.md) is a cheatsheet of the ~20 raw Ansible and
-Terraform commands, for running the tools directly on the host instead of
-through the wrappers.
-
 > Why is `group_vars` under `inventory/`? The playbooks live in the
 > `playbooks/` subdirectory, and Ansible looks for playbook-adjacent
 > `group_vars` in `playbooks/group_vars/`. Inventory-adjacent `group_vars` are
@@ -117,11 +123,14 @@ through the wrappers.
 
 ## Tags
 
+From `ansible/`, with the venv active (see commands.md for why the prefix):
+
 ```bash
-pve-state --tags base       # repos + packages + terraform (no reboot implied)
-pve-state --tags network    # vmbr1
-pve-state --tags gpu        # passthrough + vendor-reset (needs a reboot)
-pve-state --tags laptop     # lid settings
+ANSIBLE_CONFIG=ansible.cfg ansible-playbook playbooks/proxmox/site.yml --tags base     # repos + packages + terraform (no reboot implied)
+ANSIBLE_CONFIG=ansible.cfg ansible-playbook playbooks/proxmox/site.yml --tags network  # vmbr1/2/3
+ANSIBLE_CONFIG=ansible.cfg ansible-playbook playbooks/proxmox/site.yml --tags storage  # content types of "local"
+ANSIBLE_CONFIG=ansible.cfg ansible-playbook playbooks/proxmox/site.yml --tags gpu      # passthrough + vendor-reset (needs a reboot)
+ANSIBLE_CONFIG=ansible.cfg ansible-playbook playbooks/proxmox/site.yml --tags laptop   # lid settings
 ```
 
 ---
@@ -148,14 +157,14 @@ Behaviours fixed along the way:
   separate file is used now, and if the old script ever ran, that line is put
   back.
 - **`vfio_virqfd` was dropped from the module list.** It was folded into `vfio`
-  in kernel 6.2; on this host (7.0.2-6-pve) no such module exists, and leaving
+  in kernel 6.2; on this host's 7.0 kernels no such module exists, and leaving
   it listed produces a boot-time error.
 - **`proxmox-default-headers` is not used.** That meta package points at PVE's
-  default kernel (6.14) while this host runs 7.0.2-6-pve — it would install the
-  wrong headers and the DKMS build would fail. The role derives the exact
-  running-kernel package (`proxmox-headers-7.0.2-6-pve`) and the ABI meta
-  package (`proxmox-headers-7.0`), then installs whichever ones **actually
-  exist** in the repositories.
+  default kernel (6.14 at the time) rather than the 7.0 series this host runs
+  — it would install the wrong headers and the DKMS build would fail. The role
+  derives the exact running-kernel package (`proxmox-headers-$(uname -r)`) and
+  the ABI meta package (`proxmox-headers-7.0`), then installs whichever ones
+  **actually exist** in the repositories.
 - **`update-initramfs` runs once.** Both `gpu_passthrough` and `vendor_reset`
   notify it; the handler is defined once in `pve_common` and both roles share a
   single play, so the initramfs is rebuilt once instead of twice.
@@ -167,8 +176,10 @@ Behaviours fixed along the way:
 
 ## Settings
 
-Everything you would change lives in
-`ansible/inventory/group_vars/proxmox_nodes.yml`. The ones touched most often:
+Everything you would change on the host lives in
+`ansible/inventories/production/group_vars/proxmox_nodes.yml` (the desktop's
+counterpart is `group_vars/ubuntu_desktop.yml`, the firewall's is
+`roles/opnsense_config/defaults/main.yml`). The ones touched most often:
 
 ```yaml
 gpu_passthrough_pci_ids:        # [vendor:device] pairs from lspci -nn
@@ -208,31 +219,19 @@ The host itself stays on the home network so a broken firewall never costs you
 the Proxmox UI. Full design, firewall rules and post-install steps:
 **[docs/network.md](docs/network.md)**.
 
-Order matters, because the bridges are host state and the guests need a
-gateway that exists:
+Terraform manages two VMs, both created from images Proxmox downloads itself:
 
-```bash
-./state_push_ansible.sh --tags base,network
-```
+| VM | What | Notes |
+|---|---|---|
+| 100 `opnsense-fw` | OPNsense 26.7 installer ISO, 2 cores / 2 GB | WAN on vmbr0, LAN/DMZ/LAB on vmbr1/2/3, starts first |
+| 102 `ubuntu-desktop` | linuxcontainers Ubuntu 24.04 desktop qcow2, 8 cores / 12 GB | both GPUs, 8 USB ports and the whole of nvme0n1 passed through |
 
-```bash
-./state_push_terraform.sh
-```
-
-That creates the OPNsense ISO download and the firewall VM, and nothing else.
-Install OPNsense from the Proxmox console, follow docs/network.md, add the one
-static route it tells you to, and only then:
-
-```bash
-./state_push_terraform.sh --guests
-```
-
-`terraform output` prints the interface map, every address and the static route
-line, so none of it has to be memorised.
-
-The Windows guest is skipped unless you set `windows_11_iso_url` - Microsoft's
-evaluation links expire about 24 hours after they are issued, so no committed
-default can work.
+Order matters on a rebuild, because the bridges are host state and the desktop
+needs a gateway that exists: host playbook, then the firewall VM with its WAN
+unplugged, then the OPNsense install (docs/network.md), then the desktop.
+`terraform output next_steps` prints that order and `terraform output` the
+interface map, every address and the static route line, so none of it has to
+be memorised.
 
 ---
 

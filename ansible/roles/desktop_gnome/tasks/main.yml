@@ -1,0 +1,37 @@
+---
+# GNOME settings as system defaults rather than user values. A user's own
+# value always wins over a system default, so on a desktop that already has
+# them this changes nothing visible, and a rebuilt desktop starts out the
+# same. It also needs no D-Bus session and no python3-psutil on the guest,
+# which writing user values (community.general.dconf) would.
+
+# Without a "user" profile dconf reads only the user database. The image
+# ships none (only "ibus"), so this file is what makes the system database
+# count at all.
+- name: desktop_gnome | The user profile layers the system database under the user's
+  ansible.builtin.copy:
+    dest: /etc/dconf/profile/user
+    content: |
+      user-db:user
+      system-db:{{ desktop_gnome_dconf_db }}
+    owner: root
+    group: root
+    mode: "0644"
+  notify: desktop_gnome_dconf_update
+
+- name: desktop_gnome | Keyfile directory
+  ansible.builtin.file:
+    path: "/etc/dconf/db/{{ desktop_gnome_dconf_db }}.d"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: desktop_gnome | Settings
+  ansible.builtin.template:
+    src: dconf-settings.j2
+    dest: "/etc/dconf/db/{{ desktop_gnome_dconf_db }}.d/00-homelab"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: desktop_gnome_dconf_update

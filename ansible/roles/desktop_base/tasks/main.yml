@@ -1,0 +1,98 @@
+---
+# The workstation's own changes on top of its image: SSH access, third-party
+# APT repositories, packages, snaps, timezone and PRIME mode.
+
+- name: desktop_base | Controller keys may log in as {{ desktop_user }}
+  ansible.posix.authorized_key:
+    user: "{{ desktop_user }}"
+    key: "{{ item }}"
+    state: present
+  loop: "{{ desktop_authorized_keys }}"
+  loop_control:
+    label: "{{ item.split() | last }}"
+
+- name: desktop_base | /etc/apt/keyrings exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# force: false - an existing key is only fetched again when the vendor's copy
+# is newer (If-Modified-Since), and only replaced when its bytes differ.
+# Brave's is owned by the brave-keyring package once brave-browser is in.
+# --check reports "changed" whenever the server answers 200 to that question
+# (download.docker.com republishes its key): check mode sends a HEAD and
+# cannot compare contents. A real run then finds the same bytes and leaves it.
+- name: desktop_base | Repository signing keys
+  ansible.builtin.get_url:
+    url: "{{ item.key_url }}"
+    dest: "{{ item.key_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+    force: false
+  loop: "{{ desktop_apt_repos }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+# Written byte for byte as they are on the machine. deb822_repository and
+# apt_repository would rewrite them in their own format on the first run.
+- name: desktop_base | Repository definitions
+  ansible.builtin.copy:
+    dest: "/etc/apt/sources.list.d/{{ item.file }}"
+    content: "{{ item.content }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ desktop_apt_repos }}"
+  loop_control:
+    label: "{{ item.file }}"
+  register: desktop_base_repos
+
+- name: desktop_base | Refresh the APT cache after a repository change
+  ansible.builtin.apt:
+    update_cache: true
+  when: desktop_base_repos is changed
+
+- name: desktop_base | Packages
+  ansible.builtin.apt:
+    name: "{{ desktop_packages }}"
+    state: present
+    cache_valid_time: 3600
+
+- name: desktop_base | Snaps
+  community.general.snap:
+    name: "{{ item.name }}"
+    classic: "{{ item.classic | default(false) }}"
+    state: present
+  loop: "{{ desktop_snaps }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: desktop_base | Timezone
+  community.general.timezone:
+    name: "{{ desktop_timezone }}"
+  when: desktop_timezone | length > 0
+
+- name: desktop_base | Read the PRIME profile
+  ansible.builtin.command: prime-select query
+  register: desktop_base_prime
+  changed_when: false
+  check_mode: false
+  when: desktop_prime_profile | length > 0
+
+- name: desktop_base | PRIME profile
+  ansible.builtin.command: "prime-select {{ desktop_prime_profile }}"
+  changed_when: true
+  when:
+    - desktop_prime_profile | length > 0
+    - desktop_base_prime.stdout | trim != desktop_prime_profile
+
+- name: desktop_base | Services
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop: "{{ desktop_services_enabled }}"

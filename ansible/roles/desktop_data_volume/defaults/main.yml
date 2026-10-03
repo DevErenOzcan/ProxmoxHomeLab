@@ -1,0 +1,9 @@
+---
+# Values live in inventories/production/group_vars/ubuntu_desktop.yml.
+desktop_data_volume_uuid: ""            # filesystem UUID, as blkid prints it
+desktop_data_volume_fstype: ext4
+desktop_data_volume_mountpoint: /mnt/data
+desktop_data_volume_owner: ubuntu
+# Directories on the volume, each linked into the home directory:
+#   - { name: Projects, link: /home/ubuntu/Projects }
+desktop_data_volume_links: []

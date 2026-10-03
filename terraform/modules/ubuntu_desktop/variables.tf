@@ -28,8 +28,8 @@ variable "network_bridge" {
 variable "mac_address" {
   description = <<-EOT
     Pinned so OPNsense can hold a DHCP reservation for it. That is how this VM
-    gets 10.10.10.11 - there is no cloud-init here to set an address, because
-    an installer ISO carries none.
+    gets 10.10.10.11 - the image carries no cloud-init drive to set an
+    address.
   EOT
   type        = string
   default     = "BC:24:11:B8:0E:F8"
@@ -39,13 +39,9 @@ variable "mac_address" {
 # Sizing and storage
 # ---------------------------------------------------------------------------
 variable "datastore_id" {
-  description = <<-EOT
-    Datastore for the OS and EFI disks. Defaults to nvme2, the thin pool the
-    pve_storage Ansible role builds out of the reclaimed nvme0n1. Terraform
-    will fail with "storage 'nvme2' does not exist" until that has run.
-  EOT
+  description = "Datastore for the OS and EFI disks"
   type        = string
-  default     = "nvme2"
+  default     = "local-lvm"
 }
 
 variable "cores" {
@@ -57,7 +53,7 @@ variable "cores" {
 variable "memory" {
   description = "RAM in MB"
   type        = number
-  default     = 8*1024
+  default     = 12 * 1024
 }
 
 variable "disk_size" {
@@ -67,21 +63,32 @@ variable "disk_size" {
 }
 
 variable "data_volume_id" {
-  description = "ID of the independent data volume to attach (e.g. local-lvm:vm-999-disk-1). If empty, no data volume is attached."
+  description = <<-EOT
+    The data disk attached as scsi1. An absolute path passes a whole host
+    block device through - /dev/nvme0n1, the Intel 670p 512 GB, is what runs;
+    the guest sees it as /dev/sdb and keeps an ext4 partition on it. Anything
+    else is a datastore volume ID (e.g. local-lvm:vm-999-disk-1). Empty means
+    no data disk.
+  EOT
   type        = string
   default     = "/dev/nvme0n1"
 }
 
 variable "data_disk_size" {
-  description = "Size of the data disk in GB. Must match the actual size of the independent volume."
+  description = <<-EOT
+    Size of the data disk in GB, as the provider reports it: whole GiB,
+    rounded down. nvme0n1 is 500107608 KiB = 476.9 GiB, so 476. Anything else
+    is a permanent diff on a passthrough disk, whose size Proxmox cannot
+    change.
+  EOT
   type        = number
-  default     = 500
+  default     = 476
 }
 
 variable "cpu_type" {
-  description = "'host' is required for passthrough to behave"
+  description = "'host' passes the real CPU through, which passthrough guests want"
   type        = string
-  default     = "x86-64-v2-AES"
+  default     = "host"
 }
 
 # ---------------------------------------------------------------------------
@@ -89,16 +96,10 @@ variable "cpu_type" {
 # ---------------------------------------------------------------------------
 variable "hostpci_devices" {
   description = <<-EOT
-    PCI devices handed to the guest, in order. Kept exactly as this lab had
-    them. Notes on the two that look odd but are not:
-
-      * "0000:01:00" has no function number on purpose - Proxmox reads that as
-        "every function of that device", which is valid and verified against
-        this host's parser.
-      * 0000:06:00.2 is the AMD Platform Security Processor rather than a GPU
-        function. It sits alone in IOMMU group 18 so it is not forced along by
-        grouping, and passing it is unusual - but it is what this lab ran, so
-        it stays. Drop it here if the guest ever misbehaves around it.
+    PCI devices handed to the guest, in order (hostpci0, hostpci1, ...).
+    Exactly what VM 102 runs: the Cezanne iGPU as the primary display and the
+    RTX 3050 Ti. The other functions bound to vfio-pci on the host (iGPU
+    audio, PSP, audio coprocessor, MT7921) are not passed to this guest.
 
     xvga marks the primary display adapter; exactly one device may set it.
   EOT
@@ -109,24 +110,28 @@ variable "hostpci_devices" {
   }))
   default = [
     { device = "0000:06:00.0", xvga = true }, # AMD Cezanne iGPU - drives the panel
-    { device = "0000:01:00.0" },              # NVIDIA RTX 3050 Ti, all functions
+    { device = "0000:01:00.0" },              # NVIDIA RTX 3050 Ti
   ]
 }
 
 variable "usb_ports" {
   description = <<-EOT
-    USB host ports handed to the guest. The previous list also named 1-2 and
-    3-2, which do not exist on this machine - Proxmox fails the start rather
-    than ignoring them. What is actually there:
+    USB host PORTS handed to the guest, in order (usb0, usb1, ...). These are
+    ports, not devices: whatever is plugged in there belongs to the guest, and
+    an empty port is fine. What sits on them as of 2026-10-03:
 
-      1-3  integrated camera        1-4  bluetooth
-      3-3  ITE controller (8295)    3-4  ITE controller (8176)
+      1-2    (empty)                  1-3    integrated camera
+      1-4    MediaTek bluetooth       3-3    ITE controller (8176)
+      3-4    ITE controller (8295)    3-2    (empty)
+      1-1.1  external hub, port 1     1-1.2  external hub, port 2 (G300 mouse)
 
-    The ITE devices are the built-in keyboard and touchpad, so handing them
-    over means the laptop's own keyboard types into this guest, not the host.
+    The ITE devices are the built-in keyboard and touchpad, so the laptop's
+    own keyboard types into this guest, not the host. The rest of that hub is
+    not passed through: 1-1.3 (card reader) and 1-1.4 (RTL8152 USB NIC, which
+    the host sees as enx00e04c360130, down and unused).
   EOT
   type        = list(string)
-  default     = ["1-3", "1-4", "3-3", "3-4"]
+  default     = ["1-2", "1-3", "1-4", "3-3", "3-4", "3-2", "1-1.1", "1-1.2"]
 }
 
 # ---------------------------------------------------------------------------

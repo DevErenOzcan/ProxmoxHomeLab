@@ -4,9 +4,6 @@
 #
 #   .venv/bin/ansible-galaxy collection install -r ansible/requirements.yml
 #
-# roles/ansible_deps does the same on the Proxmox host for the runs that are
-# driven from there.
-#
 # Collections are resolved on the controller (ansible ships the module to the
 # target), so this list has nothing to do with what the managed hosts have.
 # It matters more since ansible-core lives in a virtualenv: the distro's
@@ -20,16 +17,12 @@ collections:
   - name: ansibleguy.opnsense
     version: ">=1.2.16"
 
-  # ansible.posix.mount, used by roles/desktop_data_volume to mount the
-  # detached data volume. Comes free with apt's "ansible" package, so it was
+  # ansible.posix.mount (roles/desktop_data_volume) and .authorized_key
+  # (roles/desktop_base). Comes free with apt's "ansible" package, so it was
   # never listed - a venv controller has to install it explicitly.
   - name: ansible.posix
     version: ">=1.5.4"
 
-  # community.general.filesystem, used by roles/desktop_data_volume to mkfs the
-  # detached data volume. The task used to say "ansible.builtin.filesystem",
-  # which is not a module that exists in any ansible-core; it went unnoticed
-  # because the play targeted a host pattern the inventory has no match for, so
-  # its tasks were never resolved.
+  # community.general.snap and .timezone, used by roles/desktop_base.
   - name: community.general
     version: ">=8.0.0"

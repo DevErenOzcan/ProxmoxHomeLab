@@ -63,9 +63,12 @@ Ansible'ın (projenizdeki otomasyonun) OPNsense cihazına bağlanıp ayarları y
 
 ```ini
 proxmox_passwd=PROXMOX_SIFRENIZI_BURAYA_YAZIN
-opnsense_api_key=BURAYA_INDIRILEN_KEY_YAZILACAK
-opnsense_api_secret=BURAYA_INDIRILEN_SECRET_YAZILACAK
+OPNSENSE_API_KEY=BURAYA_INDIRILEN_KEY_YAZILACAK
+OPNSENSE_API_SECRET=BURAYA_INDIRILEN_SECRET_YAZILACAK
 ```
+
+Değişken adları büyük harfle ve tam olarak böyle olmalı: rol bu ikisini
+`lookup('env', ...)` ile ortam değişkeni olarak okur.
 
 ## 6. Otomasyonun (Ansible) Çalıştırılması
 
@@ -76,8 +79,12 @@ Tüm hazırlıklar tamam! Artık repodaki ağ ve güvenlik duvarı konfigürasyo
 
 ```bash
 cd ansible
-ANSIBLE_CONFIG=ansible.cfg ansible-playbook -i inventories/production/hosts.yml playbooks/opnsense/site.yml
+env $(grep '^OPNSENSE_API_' ../.env) ANSIBLE_CONFIG=ansible.cfg ansible-playbook playbooks/opnsense/site.yml
 ```
+
+`env $(grep ...)` öneki iki API değişkenini yalnızca bu koşunun ortamına
+koyar; o olmadan rol kimlik bilgisi bulamaz ve hiçbir şey yapmadan atlar.
+Önce `--check --diff` ile ne değişeceğine bakabilirsiniz.
 
 > **Not:** Windows üzerinden WSL (*Örn:* `/mnt/c/Users/...`) çalıştırıyorsanız, dosya yetki hatalarını atlamak adına komutun başındaki `ANSIBLE_CONFIG=ansible.cfg` kısmı zorunludur.
 
@@ -97,3 +104,5 @@ qm set 100 -net0 virtio=02:7A:AA:5D:AD:51,bridge=vmbr0,firewall=0,link_down=0
 ```
 
 > **Not:** `02:7A:AA:5D:AD:51` yerine kendi VM'nizin donanım (MAC) adresini kullanmalısınız. MAC adresinizi `qm config 100` yazarak `net0` satırında görebilirsiniz. Komut sonundaki `link_down=0` ifadesi kablonun fiziksel olarak "takılı" duruma getirilmesini sağlar.
+>
+> Kabloyu çeken Terraform'dur: `firewall_wan_connected=false` ile yapılan her `apply` net0'ı `link_down=1` yapar. Değişkenin varsayılanı artık `true`; `false`'u yalnızca kurulum sırasında verin.

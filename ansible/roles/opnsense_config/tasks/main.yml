@@ -1,15 +1,21 @@
 ---
 # Applies the firewall's configuration through the OPNsense REST API.
 #
-# Safety model, in order:
-#   1. skip cleanly when unconfigured, rather than half-applying
-#   2. take a savepoint, so OPNsense reverts by itself if this run locks us out
-#   3. write aliases before the rules that reference them
-#   4. confirm the savepoint only once everything applied
+# Order of a run:
+#   1. skip cleanly when there are no API credentials
+#   2. read back what the API reports but cannot write - interface assignment
+#      and addressing, gateways, hostname, services - and stop before changing
+#      anything if it differs from the baseline in defaults/main.yml
+#   3. write aliases before the rules that reference them, then rules, DNS,
+#      Dnsmasq settings, DHCP pools and reservations
 #
-# The rule module drives the os-firewall plugin's "Automation" ruleset, which
-# is evaluated ahead of rules made in the GUI. Rules added by hand stay where
-# they are; this role does not touch them.
+# --check is a real dry run: step 2 is reads only, and the ansibleguy modules
+# compare without writing in check mode, so every "changed" in a --check run
+# is a difference between defaults/main.yml and the firewall.
+#
+# The rules land in OPNsense's MVC filter, which is evaluated ahead of legacy
+# GUI rules. Rules not declared here are left alone unless they are listed in
+# opnsense_unused_rules.
 
 - name: opnsense_config | Are the API credentials available
   ansible.builtin.set_fact:
@@ -44,9 +50,7 @@
     - opnsense_require_credentials | default(false) | bool
 
 - name: opnsense_config | Configure the firewall
-  when:
-    - opnsense_have_credentials
-    - not ansible_check_mode
+  when: opnsense_have_credentials
   block:
 
     - name: opnsense_config | Firewall is reachable
@@ -56,6 +60,7 @@
         timeout: 15
       register: opnsense_reachable
       failed_when: false
+      check_mode: false
 
     - name: opnsense_config | Firewall is not answering
       ansible.builtin.fail:
@@ -86,32 +91,46 @@
         <<: *opn
       when: opnsense_install_firewall_plugin | bool
 
-    # Which interfaces this firewall actually has. Assigning a NIC to OPT1/OPT2
-    # is the one thing the API does not expose (GUI or console only), so a rule
-    # naming an unassigned interface can never succeed - and without this check
-    # it fails once per rule, each time printing a page of httpx internals for
-    # a condition one query answers.
-    - name: opnsense_config | Read the assigned interfaces
+    # ---- read back what the API cannot write ------------------------------
+    # Assigning a NIC and addressing it are console/GUI jobs on 26.7, and so
+    # are the gateway the console wizard creates, the hostname and sshd. The
+    # API reports all of them, so they are checked rather than trusted.
+    #
+    # OPNsense labels these JSON responses text/html, so the uri module never
+    # fills in .json - the content gets parsed by hand. Without return_content
+    # there would be nothing to parse.
+    - name: opnsense_config | Read interfaces, gateways, system and services
       ansible.builtin.uri:
-        url: "https://{{ opnsense_host }}:{{ opnsense_port }}/api/interfaces/overview/export"
+        url: "https://{{ opnsense_host }}:{{ opnsense_port }}/api/{{ item }}"
         method: GET
         url_username: "{{ opnsense_api_key }}"
         url_password: "{{ opnsense_api_secret }}"
         force_basic_auth: true
         validate_certs: "{{ opnsense_ssl_verify | bool }}"
-        # OPNsense labels this endpoint text/html even though the body is JSON,
-        # so the uri module never fills in .json - the content gets parsed by
-        # hand below. Without return_content there would be nothing to parse.
         return_content: true
-      register: opnsense_iface_overview
+      loop:
+        - interfaces/overview/export
+        - routing/settings/searchGateway
+        - diagnostics/system/systemInformation
+        - core/service/search
+      register: opnsense_reads
       changed_when: false
       check_mode: false
       no_log: true
 
+    - name: opnsense_config | Index the responses by endpoint
+      ansible.builtin.set_fact:
+        opnsense_api: >-
+          {{ dict(opnsense_reads.results | map(attribute='item')
+                  | zip(opnsense_reads.results | map(attribute='content') | map('from_json'))) }}
+
+    # A rule naming an unassigned interface can never succeed - and without
+    # this check it fails once per rule, each time printing a page of httpx
+    # internals for a condition one query answers.
     - name: opnsense_config | Every interface the rules name must be assigned
       vars:
         opnsense_assigned_ifaces: >-
-          {{ (opnsense_iface_overview.content | default('[]') | from_json)
+          {{ opnsense_api['interfaces/overview/export']
              | map(attribute='identifier', default='')
              | reject('equalto', '') | sort | list }}
         opnsense_missing_ifaces: >-
@@ -128,6 +147,74 @@
           Interfaces / Assignments (add the device, then set its static IPv4 on
           the interface's own page) or at the console. The addresses are in
           docs/network.md. Nothing has been changed by this run.
+
+    - name: opnsense_config | Interface assignment and addressing match the baseline
+      vars:
+        _live: >-
+          {{ opnsense_api['interfaces/overview/export']
+             | selectattr('identifier', 'equalto', item.id) | first | default({}) }}
+        _cfg: "{{ _live.config | default({}) }}"
+      ansible.builtin.assert:
+        that:
+          - _live.device | default('') == item.device
+          - _live.addr4 | default('') == item.address
+          - _cfg.gateway | default('') == item.gateway | default('')
+          - (_cfg.blockbogons | default('') == '1') == (item.blockbogons | default(false))
+          - (_cfg.blockpriv | default('') == '1') == (item.blockpriv | default(false))
+        quiet: true
+        fail_msg: >-
+          {{ item.id }} differs from opnsense_baseline_interfaces. Expected
+          {{ item.device }} {{ item.address }}, gateway
+          '{{ item.gateway | default('') }}', blockbogons
+          {{ item.blockbogons | default(false) }}, blockpriv
+          {{ item.blockpriv | default(false) }}; the firewall has
+          {{ _live.device | default('nothing assigned') }}
+          {{ _live.addr4 | default('-') }}, gateway '{{ _cfg.gateway | default('') }}',
+          blockbogons {{ _cfg.blockbogons | default('') == '1' }}, blockpriv
+          {{ _cfg.blockpriv | default('') == '1' }}. These are console/GUI
+          settings the API cannot write (docs/network.md) - fix the firewall,
+          or the baseline if the firewall is right. Nothing has been changed.
+      loop: "{{ opnsense_baseline_interfaces }}"
+      loop_control:
+        label: "{{ item.id }}"
+
+    - name: opnsense_config | Gateways match the baseline
+      vars:
+        _gw: >-
+          {{ opnsense_api['routing/settings/searchGateway'].rows
+             | selectattr('name', 'equalto', item.name) | first | default({}) }}
+      ansible.builtin.assert:
+        that:
+          - _gw.interface | default('') == item.interface
+          - _gw.gateway | default('') == item.gateway
+          - (_gw.defaultgw | default(false) | bool) == (item.default | default(false))
+          - not (_gw.disabled | default(true) | bool)
+        quiet: true
+        fail_msg: >-
+          Gateway {{ item.name }} differs from opnsense_baseline_gateways:
+          expected {{ item.gateway }} on {{ item.interface }}
+          (default {{ item.default | default(false) }}), the firewall has
+          {{ _gw if _gw else 'no such gateway' }}. Nothing has been changed.
+      loop: "{{ opnsense_baseline_gateways }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: opnsense_config | Hostname and running services match the baseline
+      vars:
+        _running: >-
+          {{ opnsense_api['core/service/search'].rows
+             | selectattr('running', 'equalto', 1) | map(attribute='name') | list }}
+        _name: "{{ opnsense_api['diagnostics/system/systemInformation'].name | default('') }}"
+      ansible.builtin.assert:
+        that:
+          - _name == opnsense_baseline_hostname
+          - opnsense_baseline_services | difference(_running) | length == 0
+        quiet: true
+        fail_msg: >-
+          Expected hostname {{ opnsense_baseline_hostname }} with
+          {{ opnsense_baseline_services | join(', ') }} running; the firewall
+          is {{ _name }} and runs {{ _running | join(', ') }}. Nothing has
+          been changed.
 
     # ---- the net under the trapeze ------------------------------------
     # OPNsense rolls the configuration back on its own if a savepoint is not
@@ -199,6 +286,7 @@
             sequence: "{{ item.sequence }}"
             interface: "{{ item.interface }}"
             direction: "{{ item.direction | default('in') }}"
+            ip_protocol: "{{ item.ip_protocol | default(omit) }}"
             protocol: "{{ item.protocol | default(omit) }}"
             source_net: "{{ item.source_net | default(omit) }}"
             source_port: "{{ item.source_port | default(omit) }}"
@@ -228,7 +316,7 @@
         # "Provided interface 'lan' was not found!" even though lan exists.
         # Read the names off the firewall instead of hardcoding them - they
         # follow whatever the interface was called when it was assigned.
-        - name: opnsense_config | Read the Dnsmasq interface names
+        - name: opnsense_config | Read the Dnsmasq settings
           ansible.builtin.uri:
             url: "https://{{ opnsense_host }}:{{ opnsense_port }}/api/dnsmasq/settings/get"
             method: GET
@@ -245,12 +333,74 @@
 
         - name: opnsense_config | Map interface identifiers to Dnsmasq names
           vars:
-            _dnsmasq_ifaces: "{{ (opnsense_dnsmasq_settings.content | from_json).dnsmasq.interface }}"
+            _dnsmasq: "{{ (opnsense_dnsmasq_settings.content | from_json).dnsmasq }}"
+            _listening: >-
+              {{ _dnsmasq.interface | dict2items
+                 | selectattr('value.selected', 'equalto', 1)
+                 | map(attribute='key') | sort }}
           ansible.builtin.set_fact:
             opnsense_dnsmasq_if: >-
-              {{ dict(_dnsmasq_ifaces | dict2items | map(attribute='key') | list
-                      | zip(_dnsmasq_ifaces | dict2items | map(attribute='value.value') | list)) }}
+              {{ dict(_dnsmasq.interface | dict2items | map(attribute='key') | list
+                      | zip(_dnsmasq.interface | dict2items | map(attribute='value.value') | list)) }}
+            opnsense_dnsmasq_live: "{{ _listening | join(',') }} port {{ _dnsmasq.port }}"
+            opnsense_dnsmasq_drift: >-
+              {{ _listening != (opnsense_dnsmasq_interfaces | sort)
+                 or (_dnsmasq.port | string) != (opnsense_dnsmasq_port | string) }}
           when: opnsense_dhcp_enabled | bool
+
+        # A partial update: the settings API only touches the fields it is
+        # given, so the rest of the page (DHCP options, logging, ...) stays as
+        # the GUI left it. dnsmasq_general would rewrite all of it.
+        - name: opnsense_config | Dnsmasq listen interfaces and DNS port
+          ansible.builtin.uri:
+            url: "https://{{ opnsense_host }}:{{ opnsense_port }}/api/dnsmasq/settings/set"
+            method: POST
+            body_format: json
+            body:
+              dnsmasq:
+                interface: "{{ opnsense_dnsmasq_interfaces | join(',') }}"
+                port: "{{ opnsense_dnsmasq_port | string }}"
+            url_username: "{{ opnsense_api_key }}"
+            url_password: "{{ opnsense_api_secret }}"
+            force_basic_auth: true
+            validate_certs: "{{ opnsense_ssl_verify | bool }}"
+            return_content: true
+          register: opnsense_dnsmasq_set
+          changed_when: true
+          failed_when: >-
+            (opnsense_dnsmasq_set.content | default('{}') | from_json).result | default('')
+            != 'saved'
+          no_log: true
+          when:
+            - opnsense_dhcp_enabled | bool
+            - opnsense_dnsmasq_drift | bool
+            - not ansible_check_mode
+
+        - name: opnsense_config | Apply the Dnsmasq settings
+          ansible.builtin.uri:
+            url: "https://{{ opnsense_host }}:{{ opnsense_port }}/api/dnsmasq/service/reconfigure"
+            method: POST
+            body_format: json
+            body: {}
+            url_username: "{{ opnsense_api_key }}"
+            url_password: "{{ opnsense_api_secret }}"
+            force_basic_auth: true
+            validate_certs: "{{ opnsense_ssl_verify | bool }}"
+          changed_when: true
+          no_log: true
+          when: opnsense_dnsmasq_set is changed
+
+        - name: opnsense_config | Dnsmasq settings would change
+          ansible.builtin.debug:
+            msg: >-
+              Dnsmasq listens on {{ opnsense_dnsmasq_live }}; a real run sets
+              {{ opnsense_dnsmasq_interfaces | join(',') }} port
+              {{ opnsense_dnsmasq_port }}.
+          changed_when: true
+          when:
+            - opnsense_dhcp_enabled | bool
+            - opnsense_dnsmasq_drift | bool
+            - ansible_check_mode
 
         - name: opnsense_config | DHCP pools
           ansibleguy.opnsense.dnsmasq_range:
@@ -334,8 +484,9 @@
 - name: opnsense_config | Dry-run note
   ansible.builtin.debug:
     msg: >-
-      Check mode: this role talks to a live firewall over its API, so there is
-      nothing to diff without making the calls. Run it for real to apply.
+      Check mode: nothing was written. The baseline checks above were real
+      reads, and every task that reports "changed" is a difference between
+      defaults/main.yml and the firewall.
   when:
     - opnsense_have_credentials
     - ansible_check_mode

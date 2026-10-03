@@ -64,12 +64,11 @@ Reserved static addresses:
 |---|---|
 | 192.168.1.200 | Proxmox host |
 | 192.168.1.201 | OPNsense WAN |
-| 10.10.20.10 | cloudflared container |
-| 10.10.10.10 | ubuntu-server |
-| 10.10.10.11 | ubuntu-desktop |
-| 10.10.10.12 | windows-11-desktop |
+| 10.10.20.10 | cloudflared container (reserved, not built yet) |
+| 10.10.10.11 | ubuntu-desktop (VM 102), DHCP reservation on `BC:24:11:B8:0E:F8` |
 
-DHCP pools start at `.100` in each segment and are for throwaway guests.
+DHCP pools are `10.10.10.100-245` (LAN) and `10.10.30.100-199` (LAB) and are
+for throwaway guests. The DMZ has no pool.
 
 `terraform output` prints all of this, so you do not have to keep this table in
 your head.
@@ -81,34 +80,28 @@ your head.
 
 ## Order of operations
 
-Both steps run from your own machine; neither needs a login on the host.
+This is the order for building the network from scratch. Everything runs from
+your own machine; the exact command lines are in [commands.md](../commands.md).
 
 **1. Create the bridges** — host OS state, so this is Ansible's job:
+`playbooks/proxmox/site.yml` (or just `--tags network`).
+
+**2. Create the firewall VM, with its WAN unplugged** — and without the
+desktop, which needs the firewall as its gateway:
 
 ```bash
-./state_push_ansible.sh --tags network
+terraform apply -var-file=secret.tfvars \
+  -var firewall_wan_connected=false -var create_desktop=false
 ```
-
-**2. Create the firewall VM:**
-
-```bash
-./state_push_terraform.sh
-```
-
-This creates only the OPNsense ISO download and the firewall VM. The guest VMs
-are gated behind `create_guests`, which defaults to `false`, because a guest
-booted before the firewall exists has no gateway.
 
 **3. Install and configure OPNsense** — the sections below. This part is
 manual: OPNsense has no unattended installer.
 
-**4. Add the static route** on the home router.
+**4. Add the static route** on the home router, or on each client.
 
-**5. Create the guests:**
+**5. Apply the firewall configuration** — `playbooks/opnsense/site.yml`.
 
-```bash
-./state_push_terraform.sh --guests
-```
+**6. Create the desktop** — a plain `terraform apply -var-file=secret.tfvars`.
 
 ## Installing OPNsense
 
@@ -120,8 +113,10 @@ manual: OPNsense has no unattended installer.
 > That is not hypothetical; it happened here on 2026-09-09 and took the host's
 > own DNS down with it.
 >
-> `firewall_wan_connected` therefore defaults to `false`, which sets
+> Pass `-var firewall_wan_connected=false` for the install, which sets
 > `disconnected` on net0. Install and assign interfaces first, then connect it.
+> The variable defaults to `true` only because the running firewall is
+> installed - with `false`, an apply would unplug it.
 
 Open the VM console in the Proxmox UI (`opnsense-fw` → Console).
 
@@ -139,18 +134,40 @@ Open the VM console in the Proxmox UI (`opnsense-fw` → Console).
 
 3. Choose **2) Set interface IP address** and give each one its address from
    the table above. WAN is static `192.168.1.201/24` with gateway
-   `192.168.1.1`; say no to DHCP on every interface for now; say no to IPv6.
+   `192.168.1.1` (the console names that gateway `WAN_GW`); say no to DHCP on
+   every interface for now; say no to IPv6.
 
-4. Only now plug WAN in:
+4. Only now plug WAN in - a plain apply, since the variable defaults to
+   `true`:
 
    ```bash
-   ./state_push_terraform.sh -var firewall_wan_connected=true
+   terraform apply -var-file=secret.tfvars -var create_desktop=false
    ```
 
-   Set it in a `.tfvars` file instead if you would rather not repeat the flag.
    Until this runs, the firewall can see its internal segments but not the home
    network — which is exactly what you want while it still thinks it is
    192.168.1.1.
+
+5. Set what the API cannot. Each of these is read back by every run of
+   `playbooks/opnsense/site.yml`, which stops before writing anything if one
+   differs (`opnsense_baseline_*` in the role's defaults); the rest are the
+   values the running firewall has:
+
+   | Where | Setting | Value |
+   |---|---|---|
+   | System → Settings → General | Hostname / Domain | `OPNsense` / `internal` (checked) |
+   | System → Settings → General | Time zone | `Etc/UTC` |
+   | System → Settings → General | DNS servers | `192.168.1.1` |
+   | System → Settings → General | Allow DNS server list to be overridden by DHCP/PPP on WAN | on |
+   | System → Settings → Administration | Secure Shell: enabled, root login, password login | on (sshd running is checked) |
+   | Interfaces → WAN | Block private networks | **off** (checked) |
+   | Interfaces → WAN | Block bogon networks | on (checked) |
+   | System → Access → Users → root | API key | the one `.env` holds |
+
+   *Block private networks* has to stay off in this topology: WAN **is** the
+   home network, and that checkbox drops it with a quick rule ahead of every
+   WAN pass rule. It locked every home-network client out of the firewall on
+   2026-09-17.
 
 ### Getting into the web UI the first time
 
@@ -178,8 +195,9 @@ you must be able to reach the guests.** A stateful firewall does exactly this �
 you allow the inbound direction on WAN and block the outbound direction on each
 internal interface. Replies flow on existing state, so nothing else is needed.
 
-First create two aliases under **Firewall → Aliases** so the rules stay
-readable:
+These tables are the rules the firewall runs (2026-10-03), one for one with
+`opnsense_rules` in `ansible/roles/opnsense_config/defaults/main.yml`; `seq` is
+the rule's sequence there. Two aliases keep them readable:
 
 | Alias | Type | Content |
 |---|---|---|
@@ -188,52 +206,62 @@ readable:
 
 ### WAN (`vtnet0`)
 
-Under **Interfaces → WAN**, uncheck **Block private networks** — otherwise
-nothing from `192.168.1.0/24` is ever evaluated and the rules below never
-match.
+**Block private networks** stays off on this interface — otherwise nothing
+from `192.168.1.0/24` is ever evaluated and the rules below never match.
 
-| # | Action | Source | Destination | Port | Why |
+| seq | Action | Source | Destination | Port | Why |
 |---|---|---|---|---|---|
-| 1 | Pass | `HOME_LAN` | WAN address | 443 | Reach this web UI from home |
-| 2 | Pass | `HOME_LAN` | `LAB_NETS` | any | Reach the guests from home |
+| 10 | Pass | `HOME_LAN` | this firewall | TCP 443 | Reach this web UI from home |
+| 11 | Pass | `HOME_LAN` | `LAB_NETS` | any | Reach the guests from home |
+| 12 | Pass | `HOME_LAN` | this firewall | TCP 22 | SSH to the firewall from home |
 
 Everything else inbound stays blocked by the implicit default. Nothing from the
 internet can reach in at all — the home router forwards no ports.
 
 ### LAN (`vtnet1`) — order matters
 
-| # | Action | Source | Destination | Port | Why |
+| seq | Action | Source | Destination | Port | Why |
 |---|---|---|---|---|---|
-| 1 | Pass | LAN net | LAN address | 53, ICMP | DNS and ping to the gateway |
-| 2 | **Block** | LAN net | `HOME_LAN` | any | **The isolation requirement** |
-| 3 | Block | LAN net | 10.10.30.0/24 | any | Keep the lab out of reach |
-| 4 | Pass | LAN net | 10.10.20.0/24 | any | LAN may use DMZ services |
-| 5 | Pass | LAN net | any | any | Internet |
+| 1 | Pass | LAN net | any | any (IPv4) | **Installer default - see below** |
+| 10 | Pass | 10.10.10.0/24 | 10.10.10.1 | UDP 53 | DNS on the gateway |
+| 11 | Pass | LAN net | any | any (IPv6) | **Installer default - see below** |
+| 20 | **Block** | 10.10.10.0/24 | `HOME_LAN` | any | The isolation requirement |
+| 30 | Block | 10.10.10.0/24 | 10.10.30.0/24 | any | Keep the lab out of reach |
+| 40 | Pass | 10.10.10.0/24 | 10.10.20.0/24 | any | LAN may use DMZ services |
+| 50 | Pass | 10.10.10.0/24 | any | any | Internet |
+
+> **The LAN is not isolated today.** Sequences 1 and 11 are the default LAN
+> rules the OPNsense installer created, and they are kept in the code because
+> they are what runs. Being quick pass-any rules ahead of 20 and 30, they let
+> LAN guests reach the home network and the LAB; 20 and 30 never see LAN
+> traffic. To put the isolation in force, delete both entries from
+> `opnsense_rules` and list their descriptions in `opnsense_unused_rules`.
 
 ### DMZ (`vtnet2`)
 
 The segment that is exposed through Cloudflare, so it is the one most likely to
 be compromised. It may talk to the internet and nothing else.
 
-| # | Action | Source | Destination | Port | Why |
+| seq | Action | Source | Destination | Port | Why |
 |---|---|---|---|---|---|
-| 1 | Pass | DMZ net | DMZ address | 53, ICMP | DNS and ping to the gateway |
-| 2 | **Block** | DMZ net | `HOME_LAN` | any | Isolation |
-| 3 | **Block** | DMZ net | 10.10.10.0/24 | any | A compromised service cannot pivot into LAN |
-| 4 | Block | DMZ net | 10.10.30.0/24 | any | Nor into the lab |
-| 5 | Pass | DMZ net | any | 443, 53 | cloudflared's outbound tunnel |
+| 10 | Pass | 10.10.20.0/24 | 10.10.20.1 | UDP 53 | DNS on the gateway |
+| 20 | **Block** | 10.10.20.0/24 | `HOME_LAN` | any | Isolation |
+| 30 | **Block** | 10.10.20.0/24 | `LAB_NETS` | any | A compromised service cannot pivot into LAN or LAB |
+| 40 | Pass | 10.10.20.0/24 | any | any | Internet - cloudflared dials out on 443 |
 
 ### LAB (`vtnet3`)
 
-| # | Action | Source | Destination | Port | Why |
+| seq | Action | Source | Destination | Port | Why |
 |---|---|---|---|---|---|
-| 1 | Pass | LAB net | LAB address | 53, ICMP | DNS and ping to the gateway |
-| 2 | **Block** | LAB net | `HOME_LAN` | any | Isolation |
-| 3 | **Block** | LAB net | `LAB_NETS` | any | Isolated from LAN and DMZ too |
-| 4 | Pass | LAB net | any | any | Internet |
+| 10 | Pass | 10.10.30.0/24 | 10.10.30.1 | UDP 53 | DNS on the gateway |
+| 20 | **Block** | 10.10.30.0/24 | `HOME_LAN` | any | Isolation |
+| 30 | **Block** | 10.10.30.0/24 | `LAB_NETS` | any | Isolated from LAN and DMZ too |
+| 40 | Pass | 10.10.30.0/24 | any | any | Internet |
 
-Rule 3 does not affect traffic between two guests on the same segment — that
-never reaches the firewall, it is switched inside the bridge. If you need
+`LAB_NETS` contains the gateways themselves, so on DMZ and LAB sequence 30 also
+drops ping to the gateway; only DNS (sequence 10) is let through to it.
+Sequence 30 does not affect traffic between two guests on the same segment —
+that never reaches the firewall, it is switched inside the bridge. If you need
 guest-to-guest isolation inside one segment, that is the Proxmox per-VM
 firewall, not OPNsense.
 
@@ -244,14 +272,18 @@ gets translated to `192.168.1.201`; home-network-to-guest traffic is routed,
 not translated, and its replies ride the existing state. No port forwards are
 needed anywhere — Cloudflare Tunnel is outbound-only.
 
-### DNS
+### DNS and DHCP
 
 Because the internal segments are blocked from `192.168.1.0/24`, they cannot
-use the home router as a resolver. Run **Unbound** on OPNsense (Services →
-Unbound DNS), listening on LAN/DMZ/LAB, and set the upstream resolvers under
-**System → Settings → General** to something public (`1.1.1.1`, `9.9.9.9`).
-Leave *Allow DNS server list to be overridden by DHCP/PPP on WAN* unchecked, or
-the home router's resolver comes back in through the side door.
+ask the home router directly. **Unbound** on the firewall answers them on port
+53 and forwards every query to the home router (`192.168.1.1`), which the
+firewall itself may reach. The firewall's own resolver list under **System →
+Settings → General** is `192.168.1.1` as well, with *Allow DNS server list to
+be overridden by DHCP/PPP on WAN* on. Switching to public resolvers would mean
+changing both the forwarder (`opnsense_dns_forwarders`) and that page.
+
+**Dnsmasq** does DHCP only: its DNS port is moved to 53053 so it cannot collide
+with Unbound, and it listens on LAN and LAB - the two segments with a pool.
 
 ## The static route on the home router
 
@@ -279,55 +311,67 @@ route -p add 10.10.0.0 mask 255.255.0.0 192.168.1.201
 
 ## Configuration as code
 
-Interface assignment and addressing are the only parts that stay manual — the
-OPNsense API does not expose them. Everything else is declared in
-`ansible/roles/opnsense_config/defaults/main.yml` and applied over the API:
+Everything the OPNsense API can write is declared in
+`ansible/roles/opnsense_config/defaults/main.yml` and applied over the API;
+what it can only report is declared there too, and checked:
 
-| What | Where |
-|---|---|
-| Aliases `HOME_LAN`, `LAB_NETS` | `opnsense_aliases` |
-| Every firewall rule in the tables above | `opnsense_rules` |
-| Unbound forwarders | `opnsense_dns_forwarders` |
-| DHCP pools and reservations | `opnsense_segments`, `opnsense_dhcp_reservations` |
+| What | Where | How |
+|---|---|---|
+| Aliases `HOME_LAN`, `LAB_NETS` | `opnsense_aliases` | written |
+| Every firewall rule in the tables above | `opnsense_rules` | written |
+| Unbound forwarder | `opnsense_dns_forwarders` | written |
+| Dnsmasq listen interfaces and DNS port | `opnsense_dnsmasq_interfaces`, `opnsense_dnsmasq_port` | written (partial settings update) |
+| DHCP pools and reservations | `opnsense_segments`, `opnsense_dhcp_reservations` | written |
+| Interface assignment, addresses, WAN block flags | `opnsense_baseline_interfaces` | checked |
+| Gateway `WAN_GW` | `opnsense_baseline_gateways` | checked |
+| Hostname, running sshd/unbound/dnsmasq | `opnsense_baseline_hostname`, `opnsense_baseline_services` | checked |
 
-```bash
-./state_push_ansible.sh --tags firewall
-```
+The rest of the console/GUI settings (time zone, DNS servers, SSH options) are
+in the install steps above. The command lines are in
+[commands.md](../commands.md); `--check --diff` is a real dry run - the checks
+are reads, the modules compare without writing, and every `changed` in it is a
+difference between the code and the firewall.
 
 ### The one-time credential
 
 Create an API key once, in the GUI: **System → Access → Users → root → API
 keys → +**. That downloads a file containing a key and a secret. Put both in
-`.env`:
+`.env`, under exactly these names - the role reads them with
+`lookup('env', ...)`:
 
 ```
-opnsense_api_key=...
-opnsense_api_secret=...
+OPNSENSE_API_KEY=...
+OPNSENSE_API_SECRET=...
 ```
 
-`state_push_ansible.sh` forwards them to the host on stdin as environment
-variables, so they never reach the host's disk or its argv — the same
-treatment the Proxmox password gets. Without them the role prints how to
+Nothing loads `.env` by itself; the command in commands.md puts the two values
+into the environment of that one run. Without them the role prints how to
 create them and skips; it does not fail the converge.
 
-### Why this is safe to run remotely
+### What protects a run
 
-The role wraps its changes in an OPNsense **savepoint**. If a rule locks the
-firewall out of its own management network, OPNsense rolls the configuration
-back on its own when the savepoint is not confirmed in time. The role confirms
-it only after every change has applied, and reverts explicitly if any step
-fails, so a half-applied ruleset is not a state you can end up in.
+Not a savepoint: OPNsense 26.7 has no savepoint API any more (it went with the
+os-firewall plugin), so a run that locks the firewall out does not roll itself
+back. What there is instead:
 
-The rules land in the `os-firewall` plugin's *Automation* ruleset, which is
-evaluated ahead of anything created in the GUI. Rules you added by hand are
-left alone.
+- every run first reads back the interface, gateway and service baseline and
+  stops before writing anything if it differs;
+- `--check --diff` shows exactly what a run would change;
+- a config backup taken beforehand (`GET /api/core/backup/download/this`, or
+  System → Configuration → Backups) can be restored from the GUI or console.
+
+The rules land in OPNsense's MVC filter, which is evaluated ahead of legacy
+GUI rules (there are none). Rules not declared in the role are left alone
+unless they are listed in `opnsense_unused_rules`.
 
 ---
 
 ## Traffic analysis
 
-All under the OPNsense UI. Sized for `firewall_memory = 4096`; raise it to
-`8192` in `terraform.tfvars` before turning all three on at once.
+All under the OPNsense UI, and none of them is on (2026-10-03). The firewall
+runs with 2 cores and 2048 MB; raise `memory` in
+`terraform/modules/opnsense/variables.tf` to 8192 before turning all three on
+at once.
 
 - **Insight (NetFlow)** — built in. Enable under **Reporting → NetFlow**: pick
   WAN, LAN, DMZ and LAB as listening interfaces and `localhost` as the
@@ -351,12 +395,12 @@ public DNS plus port forwarding.
 
 Consequences that are already baked into the rules above:
 
-- The DMZ can reach the internet (rule 5) so the tunnel can connect.
-- The DMZ **cannot** initiate into LAN or LAB (rules 3 and 4), so a
+- The DMZ can reach the internet (sequence 40) so the tunnel can connect.
+- The DMZ **cannot** initiate into LAN or LAB (sequence 30), so a
   compromised public service is contained.
 - Services you publish should live on the DMZ, not the LAN. If something on the
   LAN must be published, put a reverse proxy in the DMZ and open exactly that
-  one destination from DMZ to LAN, rather than relaxing rule 3.
+  one destination from DMZ to LAN, rather than relaxing sequence 30.
 
 Adding **Cloudflare Access** in front of a hostname gives it an
 authentication gate (Google/GitHub/e-mail OTP) without touching these rules.
@@ -378,13 +422,15 @@ Gateway answers, internet works. Then the part that matters:
 ping -c2 -W2 192.168.1.1; ping -c2 -W2 192.168.1.200
 ```
 
-Both must **fail**. If either succeeds, rule 2 on that interface is missing or
-sits below the allow-any rule — order is evaluated top to bottom.
+Both should **fail**. If either succeeds, sequence 20 on that interface is
+missing or sits below an allow-any rule — order is evaluated top to bottom. On
+the LAN that is exactly the case today: the installer's default rules at
+sequences 1 and 11 (see the LAN table) make both pings succeed.
 
 From your own machine on the home network:
 
 ```bash
-ping -c1 10.10.10.10
+ping -c1 10.10.10.11
 ```
 
 Must succeed once the static route is in place.
@@ -396,6 +442,9 @@ The guests lose all connectivity — that is by design. What you keep:
 - `https://192.168.1.200:8006` — the Proxmox UI, on the home network
 - The OPNsense console through that UI, including `pfctl -d` if you have locked
   yourself out of the web UI
-- SSH to the Proxmox host, and `./state_push_ansible.sh --shell` from this repo
+- SSH to the Proxmox host. From there, `ip addr add 10.10.10.2/24 dev vmbr1`
+  puts the host on the LAN segment temporarily, so the firewall's GUI and SSH
+  answer on `10.10.10.1` even when its WAN side is locked; remove the address
+  again with `ip addr del` afterwards
 
 Nothing about recovering the firewall depends on the firewall.

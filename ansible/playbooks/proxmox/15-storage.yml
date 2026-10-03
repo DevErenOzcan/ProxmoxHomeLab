@@ -1,9 +1,6 @@
 ---
-# Turns a leftover volume group into Proxmox storage.
-#
-# Separate from 10-base because it is the only playbook here that can destroy
-# data. It does nothing unless pve_storage_reclaim is true AND every guard in
-# the role agrees the volume group is disposable.
+# Proxmox storage definitions that differ from the installer's: the content
+# types of "local". nvme0n1 is deliberately absent - it belongs to VM 102.
 - name: Storage
   hosts: proxmox_nodes
   become: true

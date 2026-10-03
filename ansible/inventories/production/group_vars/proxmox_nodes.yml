@@ -41,12 +41,20 @@ base_packages_list:
   - curl
   - gpg
   - ca-certificates
+  # What ansibleguy.opnsense talks to the firewall API with, when
+  # playbooks/proxmox/50-firewall-config.yml drives that role from this host.
+  - python3-httpx
+  # On the host since the controller lived here (the old ansible_deps role):
+  # password SSH to a guest before its key is in place, and seed-ISO tooling.
+  - sshpass
+  - xorriso
 # Kernel headers (required by DKMS).
 # WARNING: do NOT use proxmox-default-headers -- that meta package points at
-# PVE's default kernel (6.14) while this host runs 7.0.2-6-pve.
-# The role derives the names below and installs whichever ones actually exist
-# in the repositories:
-#   proxmox-headers-7.0.2-6-pve  (exact version, what DKMS needs)
+# PVE's default kernel, which need not be the one this host runs
+# (7.0.14-16-pve as of 2026-10-03).
+# The role derives the names below from the RUNNING kernel and installs
+# whichever ones actually exist in the repositories:
+#   proxmox-headers-<uname -r>   (exact version, what DKMS needs)
 #   proxmox-headers-7.0          (ABI meta package, follows kernel upgrades)
 base_packages_kernel_headers: []
 base_packages_exact_kernel_headers: true
@@ -57,19 +65,23 @@ terraform_install: true
 terraform_apt_suite: "{{ ansible_distribution_release }}"
 
 # --- Storage ----------------------------------------------------------------
-# This host was installed twice. The first attempt left "pve-OLD-5807C00D"
-# holding all of nvme0n1 - about 460 GB that Proxmox does not reference, whose
-# thin pool never held a guest disk (0.00% used) and whose root filesystem has
-# an empty /var/lib/vz/images. The GPU workstation needs 300 GB and the live
-# pool has no room, so that disk gets reclaimed as a second storage.
+# Two NVMe disks, and Proxmox only owns one of them:
 #
-# DESTRUCTIVE. The role refuses unless the volume group is unreferenced by
-# Proxmox, unmounted, not in use as swap, and its thin pool is empty.
-pve_storage_reclaim: false
-pve_storage_reclaim_vg: "pve-OLD-5807C00D"
-pve_storage_pv: /dev/nvme0n1p3
-pve_storage_target_name: nvme2
-pve_storage_target_vg: nvme2
+#   nvme1n1  Samsung 512 GB  the installer's LVM: "local" (dir) + "local-lvm"
+#                            (thin pool "data" in VG "pve")
+#   nvme0n1  Intel 670p 512 GB  NOT host storage. Passed whole to VM 102 as its
+#                            data disk (terraform/modules/ubuntu_desktop); the
+#                            guest keeps a GPT + ext4 partition on it. Never
+#                            add it to storage.cfg or touch it from the host.
+#
+# The installer gives "local" iso,vztmpl,backup; "import" was added so
+# Terraform can download disk images (proxmox_download_file content_type =
+# "import"). Order does not matter, the role compares sets.
+pve_storage_local_content:
+  - iso
+  - vztmpl
+  - backup
+  - import
 
 # --- Network bridges -------------------------------------------------------
 # The internal segments the OPNsense firewall routes between. All of them are

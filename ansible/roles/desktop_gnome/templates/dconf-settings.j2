@@ -1,0 +1,9 @@
+# {{ ansible_managed }}
+# System-wide GNOME defaults; each user's own dconf values still win.
+{% for path, keys in desktop_gnome_settings | dictsort %}
+
+[{{ path }}]
+{% for key, value in keys | dictsort %}
+{{ key }}={{ value }}
+{% endfor %}
+{% endfor %}

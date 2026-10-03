@@ -1,0 +1,6 @@
+---
+# The keyfiles are only read when compiled into /etc/dconf/db/<name>.
+- name: Compile the dconf system database
+  listen: desktop_gnome_dconf_update
+  ansible.builtin.command: dconf update
+  changed_when: true

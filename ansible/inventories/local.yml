@@ -7,7 +7,8 @@
 #
 # The connection is "local", so no SSH is involved and no interpreter is pinned
 # either - discovery finds the host's own /usr/bin/python3, which is where
-# roles/ansible_deps puts python3-httpx.
+# roles/base_packages puts python3-httpx. Ansible itself and the Galaxy
+# collections are NOT on the host (2026-10-03); install them first.
 #
 # NOTE: this used to be the default. The state_push_ansible.sh / lib/push.sh
 # pair that mirrored the tree into /opt/proxmox-homelab and ran ansible there

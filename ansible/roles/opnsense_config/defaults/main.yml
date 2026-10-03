@@ -75,6 +75,10 @@ opnsense_aliases:
 #
 # Rule 1 on WAN is the one that keeps you in the building. Do not remove it
 # without another way to reach the GUI.
+#
+# 'log' defaults to true in the rule module, which is why every rule below
+# logs unless it says otherwise. These are all the filter rules the firewall
+# has (2026-10-03); there are no legacy GUI rules.
 opnsense_rules:
   # ---- WAN -----------------------------------------------------------------
   - description: "Home LAN may reach this firewall's web UI"
@@ -110,6 +114,35 @@ opnsense_rules:
     destination_port: 22
 
   # ---- LAN -----------------------------------------------------------------
+  # The OPNsense installer's own default LAN rules, kept exactly as they run
+  # (decision of 2026-10-03: codify the live state as-is).
+  #
+  # READ THIS: they sit at sequence 1 and 11, AHEAD of the isolation rules
+  # below, and they are quick pass-any. As long as they exist, LAN guests DO
+  # reach the home network and the LAB segment - sequences 20 and 30 never see
+  # LAN traffic, and the isolation docs/network.md describes is not in force.
+  # To restore it, delete these two entries and put their descriptions in
+  # opnsense_unused_rules; the next run removes them from the firewall.
+  - description: "Default allow LAN to any rule"
+    interface: "{{ opnsense_if.lan }}"
+    sequence: 1
+    action: pass
+    direction: in
+    ip_protocol: inet
+    source_net: lan
+    destination_net: any
+    log: false
+
+  - description: "Default allow LAN IPv6 to any rule"
+    interface: "{{ opnsense_if.lan }}"
+    sequence: 11
+    action: pass
+    direction: in
+    ip_protocol: inet6
+    source_net: lan
+    destination_net: any
+    log: false
+
   - description: "LAN may use the gateway for DNS"
     interface: "{{ opnsense_if.lan }}"
     sequence: 10
@@ -229,9 +262,14 @@ opnsense_rules:
     source_net: "{{ opnsense_segments.lab.cidr }}"
     destination_net: any
 
+# Rules to delete from the firewall, by description. Empty: nothing on the
+# firewall is undeclared.
+opnsense_unused_rules: []
+
 # --- DNS --------------------------------------------------------------------
-# The segments are firewalled off from the home router, so they cannot use it
-# as a resolver. Unbound on the firewall forwards to public resolvers instead.
+# The segments are firewalled off from the home router, so they cannot ask it
+# directly. Unbound on the firewall (port 53) answers them and forwards
+# everything to the home router - the firewall itself may talk to it.
 opnsense_dns_enabled: true
 opnsense_dns_forwarders:
   - "192.168.1.1"
@@ -239,8 +277,56 @@ opnsense_dns_forwarders:
 # --- DHCP -------------------------------------------------------------------
 # OPNsense 25.x removed ISC dhcpd; Dnsmasq serves DHCP here.
 opnsense_dhcp_enabled: true
+
+# Dnsmasq does DHCP only: its DNS listener is moved to 53053 because Unbound
+# owns 53. It listens on the segments that have a pool - LAN and LAB; the DMZ
+# has none. Written with a partial settings update, never dnsmasq_general,
+# which rewrites the whole page with its own defaults (port 53 included).
+opnsense_dnsmasq_interfaces:
+  - "{{ opnsense_if.lan }}"
+  - "{{ opnsense_if.lab }}"
+opnsense_dnsmasq_port: 53053
+
+# The description is the match key, so it stays as created even though VM 102
+# boots a pre-built image rather than an installer ISO.
 opnsense_dhcp_reservations:
   - host: ubuntu-desktop
     hardware_addr: "BC:24:11:B8:0E:F8"
     ip: "10.10.10.11"
     description: "GPU passthrough workstation - installer ISO, so no cloud-init to set an address"
+
+# --- console/GUI baseline: verified, never written --------------------------
+# What OPNsense 26.7's API can report but not write. These are set once at the
+# console or in the GUI (docs/network.md, "Installing OPNsense"); every run
+# reads them back and stops before changing anything if they differ.
+#
+# blockpriv must stay false: WAN *is* the home network here, and "Block
+# private networks" drops it with a quick rule ahead of every WAN pass rule
+# (it locked every home-network client out of the firewall on 2026-09-17).
+opnsense_baseline_hostname: "OPNsense.internal"
+opnsense_baseline_interfaces:
+  - id: "{{ opnsense_if.wan }}"
+    device: vtnet0
+    address: "{{ opnsense_host }}/24"
+    gateway: WAN_GW
+    blockbogons: true
+    blockpriv: false
+  - id: "{{ opnsense_if.lan }}"
+    device: vtnet1
+    address: "{{ opnsense_segments.lan.gateway }}/24"
+  - id: "{{ opnsense_if.dmz }}"
+    device: vtnet2
+    address: "{{ opnsense_segments.dmz.gateway }}/24"
+  - id: "{{ opnsense_if.lab }}"
+    device: vtnet3
+    address: "{{ opnsense_segments.lab.gateway }}/24"
+opnsense_baseline_gateways:
+  - name: WAN_GW
+    interface: "{{ opnsense_if.wan }}"
+    gateway: "192.168.1.1"   # the home router
+    default: true
+# sshd is what the WAN rule at sequence 12 exists for.
+opnsense_baseline_services:
+  - openssh
+  - unbound
+  - dnsmasq

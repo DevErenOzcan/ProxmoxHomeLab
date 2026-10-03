@@ -5,9 +5,9 @@
 # configuration that actually enforces the policy.
 #
 # The bridges this attaches to (vmbr1/2/3) are host OS state created by
-# Ansible: ansible/roles/network_bridge. Run `./sync.sh --run --tags network`
-# before the first `terraform apply`, or the VM will fail to start with
-# "bridge 'vmbr2' does not exist".
+# Ansible: ansible/roles/network_bridge. Run playbooks/proxmox/site.yml with
+# --tags network (commands.md) before the first `terraform apply`, or the VM
+# will fail to start with "bridge 'vmbr2' does not exist".
 
 module "firewall" {
   source = "../../modules/opnsense"
@@ -22,8 +22,8 @@ module "firewall" {
   dmz_bridge = local.networks.dmz.bridge
   lab_bridge = local.networks.lab.bridge
 
-  # false until the console has assigned interfaces and set WAN to
-  # 192.168.1.201. See the comment on the variable - the factory default is
+  # true: the firewall is installed and WAN is 192.168.1.201. Only a reinstall
+  # needs false - see the comment on the variable; the factory default is
   # 192.168.1.1, which collides with the home router.
   wan_connected = var.firewall_wan_connected
 }

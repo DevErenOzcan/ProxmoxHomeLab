@@ -74,16 +74,8 @@ locals {
     opnsense_lab = local.networks.lab.gateway
 
     cloudflared    = "10.10.20.10" # reserved: the Cloudflare Tunnel container
-    ubuntu_server  = "10.10.10.10"
-    ubuntu_desktop = "10.10.10.11"
+    ubuntu_desktop = "10.10.10.11" # OPNsense DHCP reservation on its MAC
   }
 
   prefix = 24
-
-  # ---- guest login ---------------------------------------------------------
-  # Terraform runs on the Proxmox host, so these paths are the host's. Missing
-  # files drop out rather than failing the plan.
-  guest_ssh_keys = compact([
-    for f in var.guest_ssh_public_key_files : try(trimspace(file(f)), "")
-  ])
 }

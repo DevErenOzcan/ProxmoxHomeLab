@@ -91,23 +91,26 @@ resource "proxmox_virtual_environment_vm" "opnsense" {
 
   # -- net1 -> vtnet1 -- LAN, trusted guests --------------------------------
   network_device {
-    bridge   = var.lan_bridge
-    model    = "virtio"
-    firewall = false
+    bridge      = var.lan_bridge
+    model       = "virtio"
+    mac_address = var.lan_mac_address
+    firewall    = false
   }
 
   # -- net2 -> vtnet2 -- DMZ, internet-facing services + cloudflared --------
   network_device {
-    bridge   = var.dmz_bridge
-    model    = "virtio"
-    firewall = false
+    bridge      = var.dmz_bridge
+    model       = "virtio"
+    mac_address = var.dmz_mac_address
+    firewall    = false
   }
 
   # -- net3 -> vtnet3 -- LAB, experiments and quarantine --------------------
   network_device {
-    bridge   = var.lab_bridge
-    model    = "virtio"
-    firewall = false
+    bridge      = var.lab_bridge
+    model       = "virtio"
+    mac_address = var.lab_mac_address
+    firewall    = false
   }
 
   operating_system {

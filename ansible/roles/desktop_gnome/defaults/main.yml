@@ -1,0 +1,7 @@
+---
+# GNOME settings installed as system-wide dconf defaults:
+#   { "<dconf path>": { "<key>": "<GVariant text>" } }
+# Values live in inventories/production/group_vars/ubuntu_desktop.yml.
+desktop_gnome_settings: {}
+# The system database the "user" profile layers under each user's own one.
+desktop_gnome_dconf_db: local

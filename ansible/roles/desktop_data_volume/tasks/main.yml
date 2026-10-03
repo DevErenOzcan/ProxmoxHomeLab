@@ -1,37 +1,71 @@
 ---
-- name: Check if secondary disk exists
+# The data disk: the host's nvme0n1, passed through as scsi1 (sdb in the
+# guest), carrying a GPT and one ext4 partition.
+#
+# Found by filesystem UUID, never by sdX, and never formatted here. The
+# previous version of this role ran mkfs.ext4 on /dev/sdb whenever blkid saw
+# no filesystem on the bare device - which is exactly what a partitioned disk
+# looks like, so on today's disk it would have aimed mkfs at the whole device,
+# partition table and all.
+
+- name: desktop_data_volume | A filesystem UUID is configured
+  ansible.builtin.assert:
+    that: desktop_data_volume_uuid | length > 0
+    fail_msg: "desktop_data_volume_uuid is empty - set it to the data filesystem's UUID (blkid)."
+    quiet: true
+
+- name: desktop_data_volume | Is the filesystem attached
   ansible.builtin.stat:
-    path: /dev/sdb
-  register: sdb_disk
+    path: "/dev/disk/by-uuid/{{ desktop_data_volume_uuid }}"
+  register: desktop_data_volume_dev
 
-- name: Create ext4 filesystem on data volume (only if not already formatted)
-  community.general.filesystem:
-    fstype: ext4
-    dev: /dev/sdb
-  when: sdb_disk.stat.exists
+- name: desktop_data_volume | The filesystem is missing
+  ansible.builtin.fail:
+    msg: >-
+      No filesystem with UUID {{ desktop_data_volume_uuid }}. It lives on the
+      host's nvme0n1, passed through as scsi1 of VM 102: check that the disk
+      is attached, then run blkid in the guest. Nothing was changed.
+  when: not desktop_data_volume_dev.stat.exists
 
-- name: Create mount point for Data Volume
-  ansible.builtin.file:
-    path: /mnt/data
-    state: directory
-    owner: ubuntu
-    group: ubuntu
-    mode: '0755'
-  when: sdb_disk.stat.exists
-
-- name: Mount Data Volume and add to fstab
+# nofail: a missing data disk must not drop the desktop into emergency mode.
+- name: desktop_data_volume | Mount it and keep it in fstab
   ansible.posix.mount:
-    path: /mnt/data
-    src: /dev/sdb
-    fstype: ext4
+    path: "{{ desktop_data_volume_mountpoint }}"
+    src: "UUID={{ desktop_data_volume_uuid }}"
+    fstype: "{{ desktop_data_volume_fstype }}"
+    opts: defaults,nofail
     state: mounted
-  when: sdb_disk.stat.exists
 
-- name: Ensure user directories link to Data Volume
+- name: desktop_data_volume | The volume belongs to the desktop user
   ansible.builtin.file:
-    src: /mnt/data/Projects
-    dest: /home/ubuntu/Projects
+    path: "{{ desktop_data_volume_mountpoint }}"
+    state: directory
+    owner: "{{ desktop_data_volume_owner }}"
+    group: "{{ desktop_data_volume_owner }}"
+    mode: "0755"
+
+- name: desktop_data_volume | Directories on the volume
+  ansible.builtin.file:
+    path: "{{ desktop_data_volume_mountpoint }}/{{ item.name }}"
+    state: directory
+    owner: "{{ desktop_data_volume_owner }}"
+    group: "{{ desktop_data_volume_owner }}"
+    mode: "0755"
+  loop: "{{ desktop_data_volume_links }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+# Not forced: if the link path already exists as a real directory, this
+# fails rather than replacing it. Skipped in check mode, where the volume is
+# not really mounted and the link target cannot exist yet.
+- name: desktop_data_volume | Links from the home directory
+  ansible.builtin.file:
+    src: "{{ desktop_data_volume_mountpoint }}/{{ item.name }}"
+    dest: "{{ item.link }}"
     state: link
-    owner: ubuntu
-    group: ubuntu
-  when: sdb_disk.stat.exists
+    owner: "{{ desktop_data_volume_owner }}"
+    group: "{{ desktop_data_volume_owner }}"
+  loop: "{{ desktop_data_volume_links }}"
+  loop_control:
+    label: "{{ item.link }}"
+  when: not ansible_check_mode

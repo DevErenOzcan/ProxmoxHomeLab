@@ -42,7 +42,7 @@
       ansible.builtin.debug:
         msg: >-
           Reboot was skipped (pve_reboot_after_converge is false).
-          Reboot later with:  pve-state   or   reboot
+          Reboot the host later with:  reboot
       when:
         - reboot_marker.stat.exists
         - not (pve_reboot_after_converge | default(true) | bool)

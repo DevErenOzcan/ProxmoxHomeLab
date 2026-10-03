@@ -1,0 +1,11 @@
+---
+# Values live in inventories/production/group_vars/ubuntu_desktop.yml; these
+# defaults only make the role a no-op where something is not declared.
+desktop_user: ubuntu
+desktop_authorized_keys: []
+desktop_apt_repos: []
+desktop_packages: []
+desktop_snaps: []
+desktop_timezone: ""
+desktop_prime_profile: ""
+desktop_services_enabled: []

@@ -28,7 +28,8 @@
   ansible.builtin.fail:
     msg: >-
       /lib/modules/{{ ansible_kernel }}/build does not exist, so DKMS cannot
-      build. Install the base packages first:  pve-state --tags base
+      build. Install the base packages first:
+      ansible-playbook playbooks/proxmox/site.yml --tags base
   when:
     - not vendor_reset_kernel_build.stat.exists
     - not ansible_check_mode
