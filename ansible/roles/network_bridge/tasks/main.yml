@@ -1,8 +1,6 @@
 ---
-# The Terraform modules attach their VMs to vmbr1
-# (terraform/environments/local/main.tf), so this bridge must exist on the host.
-# This is the role form of the task that used to live in
-# ansible/playbooks/01-host-prep.yml.
+# The Terraform VMs attach to vmbr1-vmbr3 (terraform/environments/production,
+# firewall.tf and vms.tf), so these bridges must exist on the host.
 
 - name: network_bridge | Write bridge definitions into /etc/network/interfaces
   ansible.builtin.blockinfile:

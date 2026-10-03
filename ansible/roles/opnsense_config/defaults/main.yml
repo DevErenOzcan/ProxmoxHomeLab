@@ -40,7 +40,7 @@ opnsense_use_savepoint: false
 # role can be introduced next to hand-made configuration without eating it.
 opnsense_purge_unmanaged: false
 
-# --- the network, mirroring terraform/environments/local/locals.tf ----------
+# --- the network, mirroring terraform/environments/production/locals.tf -----
 opnsense_home_lan: "192.168.1.0/24"
 opnsense_lab_supernet: "10.10.0.0/16"
 

@@ -92,8 +92,8 @@ pve_storage_local_content:
 # The host itself stays on vmbr0 / 192.168.1.200 on purpose: if the firewall VM
 # dies, the Proxmox web UI is still reachable from the home network.
 #
-# Keep in step with terraform/environments/local/locals.tf, which assigns the
-# addresses inside these segments.
+# Keep in step with terraform/environments/production/locals.tf, which
+# assigns the addresses inside these segments.
 #
 #   vmbr0  192.168.1.0/24   home network + Proxmox host + firewall WAN (exists)
 #   vmbr1  10.10.10.0/24    LAN  - trusted guests
