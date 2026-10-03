@@ -9,17 +9,15 @@ terraform {
 # ---------------------------------------------------------------------------
 # OPNsense firewall / router
 # ---------------------------------------------------------------------------
-# Replaces the old modules/router. Differences that matter:
-#   - four interfaces instead of two, so LAN / DMZ / LAB are separate L3
-#     segments the firewall can rule between, not one flat network
+# What matters about this VM:
+#   - four interfaces, so LAN / DMZ / LAB are separate L3 segments the
+#     firewall can rule between, not one flat network
 #   - starts first (startup.order = 1) with a delay, so no guest boots into a
 #     network without a gateway
 #   - cpu type 'host' so AES-NI reaches FreeBSD
 #
 # The install itself is interactive - OPNsense has no unattended installer.
-# See docs/network.md for the post-install interface assignment and the exact
-# firewall rules that implement "guests cannot reach the home LAN, but I can
-# reach the guests".
+# opnsense-bootstrap.md walks through it; docs/network.md has the rules.
 #
 resource "proxmox_virtual_environment_vm" "opnsense" {
   name        = var.vm_name

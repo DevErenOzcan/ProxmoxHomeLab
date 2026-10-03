@@ -1,5 +1,7 @@
 ---
-# The equivalent of bootstrap.sh step [2/10].
+# A dist-upgrade, the packages DKMS needs, and the kernel headers that match
+# the RUNNING kernel - whichever of the candidate header packages actually
+# exist in the repositories.
 
 - name: base_packages | Refresh the APT cache
   ansible.builtin.apt:
@@ -17,9 +19,9 @@
   ansible.builtin.set_fact:
     base_packages_header_candidates: >-
       {{ base_packages_kernel_headers
-         + ([ 'proxmox-headers-' ~ ansible_kernel ]
+         + ([ 'proxmox-headers-' ~ ansible_facts['kernel'] ]
             if base_packages_exact_kernel_headers else [])
-         + ([ 'proxmox-headers-' ~ (ansible_kernel.split('-')[0].split('.')[0:2] | join('.')) ]
+         + ([ 'proxmox-headers-' ~ (ansible_facts['kernel'].split('-')[0].split('.')[0:2] | join('.')) ]
             if base_packages_abi_kernel_headers else []) }}
 
 - name: base_packages | Check which header packages the repositories offer

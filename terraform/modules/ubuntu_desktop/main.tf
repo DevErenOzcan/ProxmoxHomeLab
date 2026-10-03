@@ -68,7 +68,7 @@ resource "proxmox_virtual_environment_vm" "ubuntu_desktop" {
 
   disk {
     datastore_id = var.datastore_id
-    import_from  = var.cloud_image_file_id
+    import_from  = var.image_file_id
     interface    = "scsi0"
     size         = var.disk_size
     iothread     = true

@@ -1,116 +1,53 @@
 ---
 # =============================================================================
-# The single settings file for the Proxmox host.
-# Every constant that used to live in bootstrap.sh was moved here. If you want
-# to change something, look here first -- the roles read these variables.
-# For values that should apply to pve1 only, use host_vars/pve1.yml.
-#
-# WHY THIS LIVES UNDER inventory/: the playbooks sit in the playbooks/
-# subdirectory, and ansible looks for playbook-adjacent group_vars in
-# playbooks/group_vars/. Inventory-adjacent group_vars are loaded no matter
-# which playbook runs.
+# The Proxmox host, pve1 (192.168.1.200, node name "proxmox").
 # =============================================================================
-
-# --- Managed-file header ----------------------------------------------------
-# This is what {{ ansible_managed }} renders to in templates. (The
-# ansible_managed setting in ansible.cfg is deprecated in ansible-core 2.19 and
-# goes away in 2.23, so it is defined as an ordinary variable instead.)
-ansible_managed: "Managed by proxmox-homelab (ansible) - do not edit by hand"
-
-# --- APT repositories (bootstrap [1/10]) ------------------------------------
-# The enterprise repositories require a subscription and make 'apt update'
-# return 401, so they get disabled.
-pve_repos_disable_enterprise: true
-pve_repos_enable_no_subscription: true
-# A single-node homelab does not need Ceph, and the enterprise Ceph repository
-# is disabled anyway, so apt stays clean. Set this to true if you need the
-# Ceph packages.
-pve_repos_enable_ceph_no_subscription: false
-pve_repos_ceph_release: "ceph-squid"
-# PVE 9 = Debian 13 (trixie); taken automatically from ansible_distribution_release.
-pve_repos_suite: "{{ ansible_distribution_release }}"
-pve_repos_clear_legacy_sources_list: true
-
-# --- Base packages (bootstrap [2/10]) ---------------------------------------
-base_packages_dist_upgrade: true
-base_packages_list:
-  - git
-  - dkms
-  - build-essential
-  - rsync
-  - curl
-  - gpg
-  - ca-certificates
-  # What ansibleguy.opnsense talks to the firewall API with, when
-  # playbooks/proxmox/50-firewall-config.yml drives that role from this host.
-  - python3-httpx
-  # On the host since the controller lived here (the old ansible_deps role):
-  # password SSH to a guest before its key is in place, and seed-ISO tooling.
-  - sshpass
-  - xorriso
-# Kernel headers (required by DKMS).
-# WARNING: do NOT use proxmox-default-headers -- that meta package points at
-# PVE's default kernel, which need not be the one this host runs
-# (7.0.14-16-pve as of 2026-10-03).
-# The role derives the names below from the RUNNING kernel and installs
-# whichever ones actually exist in the repositories:
-#   proxmox-headers-<uname -r>   (exact version, what DKMS needs)
-#   proxmox-headers-7.0          (ABI meta package, follows kernel upgrades)
-base_packages_kernel_headers: []
-base_packages_exact_kernel_headers: true
-base_packages_abi_kernel_headers: true
-
-# --- Terraform (bootstrap [3/10]) -------------------------------------------
-terraform_install: true
-terraform_apt_suite: "{{ ansible_distribution_release }}"
-
-# --- Storage ----------------------------------------------------------------
-# Two NVMe disks, and Proxmox only owns one of them:
+# Only what is specific to this machine lives here. Everything else is a role
+# default (roles/<role>/defaults/main.yml) and is not repeated: change a value
+# by adding it here, not by editing the role.
 #
-#   nvme1n1  Samsung 512 GB  the installer's LVM: "local" (dir) + "local-lvm"
-#                            (thin pool "data" in VG "pve")
+# Hardware: AMD Ryzen 7 5800H laptop, one wired NIC (nic0), two NVMe disks.
+
+# --- Storage -----------------------------------------------------------------
+# Proxmox owns only one of the two disks:
+#
+#   nvme1n1  Samsung 512 GB     the installer's LVM: "local" (dir) and
+#                               "local-lvm" (thin pool "data" in VG "pve")
 #   nvme0n1  Intel 670p 512 GB  NOT host storage. Passed whole to VM 102 as its
-#                            data disk (terraform/modules/ubuntu_desktop); the
-#                            guest keeps a GPT + ext4 partition on it. Never
-#                            add it to storage.cfg or touch it from the host.
+#                               data disk (terraform/modules/ubuntu_desktop);
+#                               never add it to storage.cfg or touch it here.
 #
-# The installer gives "local" iso,vztmpl,backup; "import" was added so
-# Terraform can download disk images (proxmox_download_file content_type =
-# "import"). Order does not matter, the role compares sets.
+# "import" is added to the installer's content types so Terraform can download
+# disk images (proxmox_download_file with content_type = "import").
 pve_storage_local_content:
   - iso
   - vztmpl
   - backup
   - import
 
-# --- Network bridges -------------------------------------------------------
-# The internal segments the OPNsense firewall routes between. All of them are
-# port-less: no physical NIC, and deliberately NO IP on the host either -- if
-# the host had an address here it would become a second path into the segments
-# and bypass the firewall.
+# --- Network bridges -----------------------------------------------------------
+# The internal segments OPNsense routes between. All are port-less and the host
+# has no address on any of them: an address there would be a second path into
+# the segments that bypasses the firewall. The host stays on vmbr0 so the
+# Proxmox UI survives a dead firewall VM.
 #
-# The host itself stays on vmbr0 / 192.168.1.200 on purpose: if the firewall VM
-# dies, the Proxmox web UI is still reachable from the home network.
-#
-# Keep in step with terraform/environments/production/locals.tf, which
-# assigns the addresses inside these segments.
-#
-#   vmbr0  192.168.1.0/24   home network + Proxmox host + firewall WAN (exists)
+#   vmbr0  192.168.1.0/24   home network, host, firewall WAN (installer-made)
 #   vmbr1  10.10.10.0/24    LAN  - trusted guests
-#   vmbr2  10.10.20.0/24    DMZ  - Cloudflare-facing services + cloudflared
+#   vmbr2  10.10.20.0/24    DMZ  - internet-facing services
 #   vmbr3  10.10.30.0/24    LAB  - experiments, quarantine
 #
-network_bridge_enabled: true
-network_bridge_reload: true
+# Keep in step with terraform/environments/production/locals.tf, which assigns
+# the addresses inside these segments.
+#
+# gateway_port: guests on that bridge may exchange frames with this port only,
+# never with each other. It is OPNsense's NIC on the segment (VM 100 netN ->
+# tap100iN); it becomes fwpr100pN if that NIC ever gets firewall=1.
 network_bridges:
   - name: vmbr1
     comment: "LAN 10.10.10.0/24 - trusted guests, gateway 10.10.10.1 on OPNsense vtnet1"
     ports: "none"
-    stp: "off"     # NOTE: quotes required -- YAML turns bare off/on/no/yes into booleans
+    stp: "off"     # quoted: YAML turns bare off/on/no/yes into booleans
     fd: 0
-  # gateway_port: guests on this bridge may exchange frames with this port only,
-  # never with each other. It is OPNsense's NIC on the segment (VM 100 netN ->
-  # tap100iN); it becomes fwpr100pN if that NIC ever gets firewall=1.
   - name: vmbr2
     comment: "DMZ 10.10.20.0/24 - internet-facing services + cloudflared, gateway 10.10.20.1 on vtnet2"
     ports: "none"
@@ -124,21 +61,9 @@ network_bridges:
     fd: 0
     gateway_port: tap100i3
 
-# --- GPU passthrough (bootstrap [4/10] - [7/10]) ----------------------------
-gpu_passthrough_enabled: true
-# For the AMD Ryzen 7 5800H. On Intel: "quiet intel_iommu=on iommu=pt"
+# --- GPU passthrough -------------------------------------------------------------
 gpu_passthrough_grub_cmdline: "quiet amd_iommu=on iommu=pt pcie_acs_override=downstream,multifunction"
-# vfio_virqfd was folded into vfio in kernel 6.2. On this host (7.0.2-6-pve)
-# no such module exists, and leaving it in the list produces a boot-time error.
-gpu_passthrough_vfio_modules:
-  - vfio
-  - vfio_iommu_type1
-  - vfio_pci
-gpu_passthrough_blacklist_drivers:
-  - nouveau
-  - radeon
-  - amdgpu
-# The [vendor:device] pairs from "lspci -nn". On this host:
+# The [vendor:device] pairs from "lspci -nn" bound to vfio-pci:
 #   10de:25a0  NVIDIA GA107M / RTX 3050 Ti Mobile   (01:00.0)
 #   1002:1638  AMD Cezanne iGPU                     (06:00.0)
 #   1002:1637  AMD Renoir HD Audio                  (06:00.1)
@@ -154,28 +79,12 @@ gpu_passthrough_pci_ids:
   - "1022:15e2"
   - "1022:15e3"
   - "1002:1638"
-gpu_passthrough_disable_vga: true
 
-# --- AMD vendor-reset / DKMS (bootstrap [8/10]) -----------------------------
-vendor_reset_enabled: true
-vendor_reset_repo: "https://github.com/gnif/vendor-reset.git"
-vendor_reset_version: "master"
-vendor_reset_src_dir: "/usr/src/vendor-reset"
-
-# --- Laptop lid behaviour (bootstrap [9/10]) --------------------------------
-laptop_lid_enabled: true
-laptop_lid_action: "ignore"
-laptop_lid_restart_logind: true
-
-# --- Reboot (bootstrap [10/10]) ---------------------------------------------
-# ON: a converge that changes GRUB, kernel modules or the initramfs reboots the
-# host on its own. This is NOT an unconditional reboot like the old bootstrap.sh
-# did -- it only fires when something actually left /run/reboot-required behind
-# (which apt also creates when dist-upgrade pulls a new kernel), so an ordinary
-# no-change run never reboots.
-#
-# To skip the reboot for one run:
-#   ansible-playbook playbooks/proxmox/site.yml -e pve_reboot_after_converge=false
+# --- Reboot ----------------------------------------------------------------------
+# A converge that changes GRUB, kernel modules or the initramfs reboots the
+# host on its own - but only when something left /run/reboot-required behind
+# (apt also creates it when dist-upgrade pulls a new kernel), so a no-change run
+# never reboots. Skip it for one run with -e pve_reboot_after_converge=false.
 pve_reboot_after_converge: true
-# shutdown -r +N : gives open sessions N minutes' notice.
+# shutdown -r +N gives open sessions N minutes' notice.
 pve_reboot_delay_minutes: 1

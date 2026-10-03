@@ -14,9 +14,9 @@ variable "vm_name" {
   default     = "ubuntu-desktop"
 }
 
-variable "cloud_image_file_id" {
+variable "image_file_id" {
+  description = "Proxmox file ID of the pre-built qcow2 disk image the OS disk is imported from"
   type        = string
-  description = "File ID of the qcow2 image to use for the OS disk"
 }
 
 variable "network_bridge" {

@@ -1,6 +1,11 @@
 ---
 gpu_passthrough_enabled: true
-gpu_passthrough_grub_cmdline: "quiet amd_iommu=on iommu=pt pcie_acs_override=downstream,multifunction"
+# The kernel command line. AMD hosts add amd_iommu=on, Intel ones
+# intel_iommu=on; pcie_acs_override splits IOMMU groups that a laptop's PCIe
+# topology lumps together.
+gpu_passthrough_grub_cmdline: "quiet iommu=pt"
+# vfio_virqfd was folded into vfio in kernel 6.2; listing it on a newer kernel
+# produces a boot-time error.
 gpu_passthrough_vfio_modules:
   - vfio
   - vfio_iommu_type1
@@ -9,11 +14,11 @@ gpu_passthrough_blacklist_drivers:
   - nouveau
   - radeon
   - amdgpu
+# The [vendor:device] pairs from "lspci -nn" to bind to vfio-pci. Required.
 gpu_passthrough_pci_ids: []
 gpu_passthrough_disable_vga: true
-# bootstrap.sh overwrote PVE's own /etc/modprobe.d/pve-blacklist.conf, which
-# wiped the "blacklist nvidiafb" line it ships with. Here we use our own file
-# and leave PVE's alone.
+# An own file rather than PVE's pve-blacklist.conf, which ships with
+# "blacklist nvidiafb" and must keep it.
 gpu_passthrough_blacklist_file: /etc/modprobe.d/zz-homelab-gpu-blacklist.conf
 gpu_passthrough_vfio_conf_file: /etc/modprobe.d/vfio.conf
 gpu_passthrough_modules_load_file: /etc/modules-load.d/vfio.conf

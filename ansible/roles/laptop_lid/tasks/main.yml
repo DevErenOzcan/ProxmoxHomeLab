@@ -1,9 +1,7 @@
 ---
-# The equivalent of bootstrap.sh step [9/10].
-# Keeps a laptop running Proxmox awake when the lid is closed.
-# bootstrap.sh edited /etc/systemd/logind.conf with sed; this uses systemd's own
-# drop-in mechanism instead, so the setting survives package updates that
-# rewrite the vendor file.
+# Keeps a laptop running Proxmox awake when the lid is closed. A logind.conf.d
+# drop-in rather than an edit of /etc/systemd/logind.conf, so the setting
+# survives package updates that rewrite the vendor file.
 
 - name: laptop_lid | Ensure logind.conf.d exists
   ansible.builtin.file:

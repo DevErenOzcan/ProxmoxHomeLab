@@ -1,5 +1,7 @@
 ---
-# The equivalent of bootstrap.sh steps [4/10] - [7/10].
+# IOMMU on the kernel command line, the VFIO modules at boot, the host's own
+# GPU drivers blacklisted, and the passed-through devices bound to vfio-pci.
+# Every change notifies a handler in pve_common; a reboot applies them.
 
 - name: gpu_passthrough | Set the IOMMU kernel parameters in GRUB
   ansible.builtin.lineinfile:
@@ -45,9 +47,9 @@
     mode: "0644"
   notify: pve_update_initramfs
 
-# bootstrap.sh overwrote PVE's pve-blacklist.conf. If that script ever ran, the
-# "blacklist nvidiafb" line is gone; put it back.
-- name: gpu_passthrough | Restore PVE's own nvidiafb blacklist entry
+# PVE ships this line in its own blacklist file. An earlier setup script
+# overwrote that file, so it is asserted here rather than assumed.
+- name: gpu_passthrough | PVE's own nvidiafb blacklist entry
   ansible.builtin.lineinfile:
     path: /etc/modprobe.d/pve-blacklist.conf
     line: "blacklist nvidiafb"

@@ -1,13 +1,13 @@
 # ============================================================================
-# THE FIREWALL - everything internal routes through this
+# THE FIREWALL - everything internal routes through this (opnsense-bootstrap.md)
 # ============================================================================
-# See locals.tf for the topology and docs/network.md for the post-install
-# configuration that actually enforces the policy.
+# See locals.tf for the topology. The policy itself is applied over the API by
+# ansible/playbooks/opnsense.
 #
-# The bridges this attaches to (vmbr1/2/3) are host OS state created by
-# Ansible: ansible/roles/network_bridge. Run playbooks/proxmox/site.yml with
-# --tags network (commands.md) before the first `terraform apply`, or the VM
-# will fail to start with "bridge 'vmbr2' does not exist".
+# The bridges this attaches to (vmbr1/2/3) are host OS state created by Ansible
+# (roles/network_bridge). Run playbooks/proxmox/site.yml before the first
+# `terraform apply`, or the VM fails to start with "bridge 'vmbr2' does not
+# exist" (proxmox-bootstrap.md).
 
 module "firewall" {
   source = "../../modules/opnsense"
@@ -23,7 +23,7 @@ module "firewall" {
   lab_bridge = local.networks.lab.bridge
 
   # true: the firewall is installed and WAN is 192.168.1.201. Only a reinstall
-  # needs false - see the comment on the variable; the factory default is
-  # 192.168.1.1, which collides with the home router.
+  # needs false - see the variable; the factory default is 192.168.1.1, which
+  # collides with the home router.
   wan_connected = var.firewall_wan_connected
 }

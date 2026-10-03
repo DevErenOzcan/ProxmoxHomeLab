@@ -13,4 +13,5 @@
 .idea
 .env
 .venv
-OPNsense.internal_root_apikey.txt
+# The file OPNsense downloads when an API key is created
+*_apikey.txt

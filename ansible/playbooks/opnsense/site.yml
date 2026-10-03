@@ -1,5 +1,13 @@
 ---
-- name: Configure OPNsense Firewall
+# The firewall's configuration over its REST API. From ansible/, with the venv
+# active and the API credentials passed in from .env:
+#
+#   env $(grep '^OPNSENSE_API_' ../.env) ANSIBLE_CONFIG=ansible.cfg \
+#     ansible-playbook playbooks/opnsense/site.yml --check --diff
+#
+# The modules run on the controller, hence connection: local
+# (inventories/production/group_vars/opnsense.yml).
+- name: OPNsense firewall
   hosts: opnsense
   connection: local
   gather_facts: false

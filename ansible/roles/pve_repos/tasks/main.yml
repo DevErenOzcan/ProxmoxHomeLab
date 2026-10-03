@@ -1,7 +1,8 @@
 ---
-# The equivalent of bootstrap.sh step [1/10].
-# PVE 9 / Debian 13 ship their repositories in deb822 (.sources) format, but
-# the old .list format still works, so both are handled here.
+# Turns the subscription-only enterprise repositories off (they make "apt
+# update" fail with 401) and the no-subscription ones on. PVE 9 / Debian 13
+# ship their repositories in deb822 (.sources) format, but the old .list
+# format still works, so both are handled.
 
 - name: pve_repos | Find enterprise repository files
   ansible.builtin.find:

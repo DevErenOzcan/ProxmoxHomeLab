@@ -1,9 +1,11 @@
 ---
-# Handlers shared by more than one role.
+# Handlers shared by gpu_passthrough and vendor_reset. The role has nothing
+# else: list it in a play (playbooks/proxmox/30-gpu.yml) and both roles notify
+# the same handlers, so the initramfs is rebuilt once instead of twice.
 #
-# NOTE: handlers run in the order they are DEFINED here, not in the order they
-# were notified. The order below is deliberate: grub first, then initramfs,
-# and the reboot marker last.
+# Handlers run in the order they are DEFINED here, not in the order they were
+# notified: grub first, then initramfs, and the reboot marker last
+# (playbooks/proxmox/99-reboot.yml acts on it).
 
 - name: Update GRUB
   listen: pve_update_grub

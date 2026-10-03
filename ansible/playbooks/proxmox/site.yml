@@ -1,17 +1,17 @@
 ---
-# Full desired state of the Proxmox homelab host.
-# Everything the old bootstrap.sh did in steps [1/10] - [10/10] lives here.
+# Desired state of the Proxmox host. From ansible/, with the venv active:
 #
-#   ansible-playbook site.yml                 # apply everything
-#   ansible-playbook site.yml --check --diff  # dry run, changes nothing
-#   ansible-playbook site.yml --tags base     # repos / packages / terraform only
-#   ansible-playbook site.yml --tags gpu      # passthrough + vendor-reset only
-#   ansible-playbook site.yml -e pve_reboot_after_converge=true
-#
+#   ANSIBLE_CONFIG=ansible.cfg ansible-playbook playbooks/proxmox/site.yml --check --diff
+#   ANSIBLE_CONFIG=ansible.cfg ansible-playbook playbooks/proxmox/site.yml
+#   ... --tags base       repositories and packages
+#   ... --tags storage    content types of "local"
+#   ... --tags network    bridges vmbr1-3, their IPv6 and guest isolation
+#   ... --tags gpu        IOMMU, vfio-pci, vendor-reset (needs a reboot)
+#   ... --tags laptop     lid switch
+#   ... -e pve_reboot_after_converge=false   apply without the reboot
 - import_playbook: 10-base.yml
 - import_playbook: 15-storage.yml
 - import_playbook: 20-network.yml
 - import_playbook: 30-gpu.yml
 - import_playbook: 40-laptop.yml
-- import_playbook: 50-firewall-config.yml
 - import_playbook: 99-reboot.yml

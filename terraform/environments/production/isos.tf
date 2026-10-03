@@ -12,9 +12,8 @@
 # ---------------------------------------------------------------------------
 # OPNsense - the firewall
 # ---------------------------------------------------------------------------
-# Replaces the old pfSense CE 2.7.2 download, whose mirror URL no longer
-# resolves. Bump both the version and the checksum together; the checksum
-# lives in OPNsense-<ver>-checksums-amd64.sha256 on the same mirror.
+# Bump the version and the checksum together; the checksum lives in
+# OPNsense-<ver>-checksums-amd64.sha256 on the same mirror.
 resource "proxmox_download_file" "opnsense_iso" {
   content_type            = "iso"
   datastore_id            = "local"
@@ -43,7 +42,9 @@ resource "proxmox_download_file" "opnsense_iso" {
 #
 # The "import" content type only accepts ova|ovf|qcow2|raw|vmdk, which is why
 # the file is stored as .qcow2, and why the "local" storage carries the import
-# content type (ansible/roles/pve_storage).
+# content type (ansible/roles/pve_storage). The "26.04" in the file name is
+# historical - the image is 24.04 (noble) - and renaming it would replace the
+# resource, i.e. re-download it.
 resource "proxmox_download_file" "ubuntu_desktop_qcow2" {
   count = var.create_desktop ? 1 : 0
 
@@ -55,6 +56,12 @@ resource "proxmox_download_file" "ubuntu_desktop_qcow2" {
   checksum           = var.ubuntu_desktop_qcow2_sha256
   checksum_algorithm = "sha256"
   upload_timeout     = 7200
+
+  # linuxcontainers.org keeps a build for a few weeks only, and this one is
+  # gone. With overwrite = true (the provider default) every plan re-reads the
+  # URL's metadata and warns that it cannot; false keeps the downloaded file
+  # as it is, which the checksum already pins.
+  overwrite = false
 }
 
 

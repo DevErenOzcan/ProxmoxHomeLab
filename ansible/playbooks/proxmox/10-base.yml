@@ -1,10 +1,11 @@
 ---
-- name: Configure base settings on Proxmox nodes
+# Package repositories, then packages and kernel headers.
+- name: Base repositories and packages
   hosts: proxmox_nodes
-  become: yes
-  gather_facts: yes
-  tags: base
+  become: true
+  gather_facts: true
   roles:
-    - pve_repos
-    - base_packages
-    - terraform
+    - role: pve_repos
+      tags: [base]
+    - role: base_packages
+      tags: [base]

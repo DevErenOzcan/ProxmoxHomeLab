@@ -49,13 +49,11 @@ output "reserved_addresses" {
 }
 
 output "next_steps" {
-  description = "Order of operations for a rebuild from scratch (commands.md has the full command lines)"
+  description = "Order of operations for a rebuild from scratch; the bootstrap guides at the repo root have the full command lines"
   value = [
-    "1. playbooks/proxmox/site.yml          (bridges vmbr1/2/3, vfio-pci bindings, storage content types)",
-    "2. terraform apply -var firewall_wan_connected=false -var create_desktop=false   (firewall VM only, WAN unplugged)",
-    "3. Install OPNsense from the Proxmox console and follow docs/network.md, then apply again with the WAN connected",
-    "4. Add the static route from output home_router_static_route (home router, or each client)",
-    "5. playbooks/opnsense/site.yml         (rules, DNS, DHCP over the API)",
-    "6. terraform apply                     (the desktop), then playbooks/ubuntu_desktop/site.yml",
+    "1. proxmox-bootstrap.md         playbooks/proxmox/site.yml (bridges, vfio-pci, storage content types)",
+    "2. opnsense-bootstrap.md        terraform apply with the WAN unplugged, console install, then playbooks/opnsense/site.yml",
+    "3. Add the static route from output home_router_static_route on the controller",
+    "4. ubuntu-desktop-bootstrap.md  terraform apply (the desktop), then playbooks/ubuntu_desktop/site.yml",
   ]
 }

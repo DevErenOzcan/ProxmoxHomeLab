@@ -1,15 +1,13 @@
 ---
-# The equivalent of bootstrap.sh step [10/10] -- but conditional.
-# The old script ended with an unconditional "reboot" on every run. This play
-# reboots only when a reboot is actually pending, i.e. something left
-# /run/reboot-required behind (GRUB, kernel modules, initramfs, or a new kernel
-# from dist-upgrade). A no-change converge never reboots.
-# Controlled by pve_reboot_after_converge (default: true).
+# Reboots the host only when a reboot is actually pending, i.e. something left
+# /run/reboot-required behind: GRUB, kernel modules or the initramfs
+# (roles/pve_common), or a new kernel from dist-upgrade. A no-change converge
+# never reboots. Controlled by pve_reboot_after_converge.
 - name: Reboot handling
   hosts: proxmox_nodes
   become: true
   gather_facts: false
-  tags: [always, reboot]
+  tags: [always]
   tasks:
     - name: reboot | Check whether a reboot is pending
       ansible.builtin.stat:

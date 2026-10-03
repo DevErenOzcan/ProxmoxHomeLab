@@ -1,5 +1,5 @@
 ---
-# The GPU workstation's in-guest state. Settings:
+# The workstation's in-guest state. Settings:
 # inventories/production/group_vars/ubuntu_desktop.yml
 - name: GPU workstation
   hosts: ubuntu_desktop

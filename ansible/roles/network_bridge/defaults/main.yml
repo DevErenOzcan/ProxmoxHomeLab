@@ -8,9 +8,10 @@ network_bridge_reload: true
 # carry guests only, and the host must not be reachable from them except
 # through the firewall.
 network_bridge_host_ipv6: false
-network_bridges:
-  - name: vmbr1
-    comment: "Isolated Home Lab bridge"
-    ports: "none"
-    stp: "off"
-    fd: 0
+# One entry per bridge:
+#   name          vmbrN
+#   comment       written above the stanza in the interfaces file
+#   ports         "none" for a port-less bridge
+#   stp, fd       quoted "off" / 0 for a bridge without loops
+#   gateway_port  optional: guests may talk to this port only (guest isolation)
+network_bridges: []

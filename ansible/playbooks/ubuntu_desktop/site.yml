@@ -1,8 +1,10 @@
 ---
-# Full desired state of the guest VMs.
-# This playbook configures the guests created by Terraform.
+# Desired state of the GPU workstation (VM 102). From ansible/, with the venv
+# active:
 #
-# Usage:
+#   ANSIBLE_CONFIG=ansible.cfg ansible-playbook playbooks/ubuntu_desktop/site.yml --check --diff
 #   ANSIBLE_CONFIG=ansible.cfg ansible-playbook playbooks/ubuntu_desktop/site.yml
-#
+#   ... --tags base     SSH key, APT repositories, packages, snaps, timezone, PRIME
+#   ... --tags gnome    GNOME settings as dconf system defaults
+#   ... --tags data     the data volume and the links into the home directory
 - import_playbook: 10-base.yml

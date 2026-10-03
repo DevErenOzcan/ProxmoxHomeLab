@@ -19,19 +19,21 @@
 #                        ┌───────────────────┼───────────────────┐
 #                     vmbr1               vmbr2               vmbr3
 #                   LAN 10.10.10.1      DMZ 10.10.20.1      LAB 10.10.30.1
-#                   trusted guests      Cloudflare-facing   experiments,
-#                                       services +          untrusted things
-#                                       cloudflared
+#                   trusted guests      internet-facing     experiments,
+#                                       services, each      untrusted things
+#                                       with cloudflared
 #
 # Why 10.10.x.x and not 192.168.x.x: all three segments fall inside a single
 # 10.10.0.0/16 supernet, so reaching them from the home network needs exactly
-# ONE static route on the home router instead of three:
+# ONE static route instead of three - on the home router, or on each client
+# where the router cannot hold one (this one cannot):
 #
 #     10.10.0.0/16  ->  192.168.1.201
 #
 # The bridges themselves are created by Ansible (roles/network_bridge), not
 # here - they are host OS state. Terraform only attaches guests to them.
-# Keep this file and ansible/inventory/group_vars/proxmox_nodes.yml in step.
+# Keep this file and ansible/inventories/production/group_vars/proxmox_nodes.yml
+# in step.
 #
 locals {
   # ---- the home network the host already lives on -------------------------
@@ -54,7 +56,7 @@ locals {
       bridge      = "vmbr2"
       cidr        = "10.10.20.0/24"
       gateway     = "10.10.20.1"
-      description = "Internet-facing services and cloudflared - may not initiate into LAN"
+      description = "Internet-facing services, each machine with its own cloudflared - may not initiate into LAN or LAB"
     }
     lab = {
       bridge      = "vmbr3"
@@ -65,16 +67,16 @@ locals {
   }
 
   # ---- fixed addresses ----------------------------------------------------
-  # Guests get static addresses so firewall rules can name them. DHCP pools
-  # start at .100 (configured on OPNsense) and are for throwaway guests.
+  # Long-lived guests get fixed addresses (a DHCP reservation on their MAC) so
+  # firewall rules can name them. The DHCP pools start at .100 (configured on
+  # OPNsense) and are for throwaway guests.
   addresses = {
     opnsense_wan = "192.168.1.201"
     opnsense_lan = local.networks.lan.gateway
     opnsense_dmz = local.networks.dmz.gateway
     opnsense_lab = local.networks.lab.gateway
 
-    cloudflared    = "10.10.20.10" # reserved: the Cloudflare Tunnel container
-    ubuntu_desktop = "10.10.10.11" # OPNsense DHCP reservation on its MAC
+    ubuntu_desktop = "10.10.10.11"
   }
 
   prefix = 24

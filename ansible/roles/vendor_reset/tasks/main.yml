@@ -1,5 +1,4 @@
 ---
-# The equivalent of bootstrap.sh step [8/10].
 # AMD GPUs (Cezanne/Vega) cannot reset themselves after a VM releases them;
 # the vendor-reset DKMS module fixes that "reset bug".
 #
@@ -21,13 +20,13 @@
 
 - name: vendor_reset | Kernel headers in place for the running kernel
   ansible.builtin.stat:
-    path: "/lib/modules/{{ ansible_kernel }}/build"
+    path: "/lib/modules/{{ ansible_facts['kernel'] }}/build"
   register: vendor_reset_kernel_build
 
 - name: vendor_reset | Kernel headers are missing
   ansible.builtin.fail:
     msg: >-
-      /lib/modules/{{ ansible_kernel }}/build does not exist, so DKMS cannot
+      /lib/modules/{{ ansible_facts['kernel'] }}/build does not exist, so DKMS cannot
       build. Install the base packages first:
       ansible-playbook playbooks/proxmox/site.yml --tags base
   when:
@@ -35,7 +34,7 @@
     - not ansible_check_mode
 
 - name: vendor_reset | Is it built for the running kernel
-  ansible.builtin.command: "dkms status -m vendor-reset -k {{ ansible_kernel }}"
+  ansible.builtin.command: "dkms status -m vendor-reset -k {{ ansible_facts['kernel'] }}"
   register: vendor_reset_status_running
   changed_when: false
   failed_when: false
@@ -60,7 +59,7 @@
 
 - name: vendor_reset | Nothing to do
   ansible.builtin.debug:
-    msg: "vendor-reset {{ vendor_reset_registered_version }} is already built for {{ ansible_kernel }}."
+    msg: "vendor-reset {{ vendor_reset_registered_version }} is already built for {{ ansible_facts['kernel'] }}."
   when: vendor_reset_built
 
 # --------------------------------------------------------------------------
@@ -71,7 +70,7 @@
 - name: vendor_reset | Build for the running kernel from the registered source
   ansible.builtin.command: >-
     dkms install -m vendor-reset -v {{ vendor_reset_registered_version }}
-    -k {{ ansible_kernel }}
+    -k {{ ansible_facts['kernel'] }}
   register: vendor_reset_rebuild
   changed_when: vendor_reset_rebuild.rc == 0
   when:
@@ -157,7 +156,7 @@
 - name: vendor_reset | Dry-run note
   ansible.builtin.debug:
     msg: >-
-      vendor-reset is not built for {{ ansible_kernel }}. A real run would
+      vendor-reset is not built for {{ ansible_facts['kernel'] }}. A real run would
       {{ 'build it from the source already registered with DKMS'
          if (vendor_reset_registered and not vendor_reset_force_rebuild)
          else 'clone, patch and register it from ' ~ vendor_reset_repo }}.
@@ -179,12 +178,10 @@
     mode: "0644"
   notify: pve_update_initramfs
 
-# bootstrap.sh wrote "options vendor-reset device_specific=1" here. That
-# parameter does not exist in vendor-reset 0.1.1 -- "modinfo -p vendor-reset"
-# lists only install_hook -- and the kernel logs
-# "unknown parameter 'device_specific' ignored" on every load. So the default
-# is now no options at all, and the file is removed rather than left lying
-# around with dead settings in it.
+# No options by default, and then no file at all. "device_specific=1", which
+# guides often put here, does not exist in vendor-reset 0.1.1 -
+# "modinfo -p vendor-reset" lists only install_hook - and the kernel logs
+# "unknown parameter 'device_specific' ignored" on every load.
 - name: vendor_reset | Module options
   ansible.builtin.copy:
     dest: "{{ vendor_reset_modprobe_conf }}"

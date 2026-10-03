@@ -6,12 +6,18 @@
 #   2. read back what the API reports but cannot write - interface assignment
 #      and addressing, gateways, hostname, services - and stop before changing
 #      anything if it differs from the baseline in defaults/main.yml
-#   3. write aliases before the rules that reference them, then rules, DNS,
-#      Dnsmasq settings, DHCP pools and reservations
+#   3. write aliases before the rules that reference them, then the rules
+#      (new and renamed ones before unused ones are removed), DNS, the Dnsmasq
+#      settings, DHCP pools and reservations
 #
 # --check is a real dry run: step 2 is reads only, and the ansibleguy modules
 # compare without writing in check mode, so every "changed" in a --check run
 # is a difference between defaults/main.yml and the firewall.
+#
+# OPNsense 26.7 has no API-driven rollback: the savepoint endpoints went away
+# with the os-firewall plugin. The safety net for a real run is a
+# configuration backup taken beforehand (System -> Configuration -> Backups).
+# The role is idempotent, so re-running after a failure is safe.
 #
 # The rules land in OPNsense's MVC filter, which is evaluated ahead of legacy
 # GUI rules. Rules not declared here are left alone unless they are listed in
@@ -23,8 +29,8 @@
       {{ (opnsense_api_key | length > 0) and (opnsense_api_secret | length > 0) }}
   no_log: true
 
-# Skipped rather than failed when unconfigured: a full converge should not go
-# red on every run just because the one-time API key does not exist yet.
+# Skipped rather than failed when unconfigured, unless opnsense_require_credentials
+# says otherwise.
 - name: opnsense_config | No API credentials, skipping the firewall
   ansible.builtin.debug:
     msg: |
@@ -37,20 +43,38 @@
         OPNSENSE_API_KEY=...
         OPNSENSE_API_SECRET=...
       Then pass them to the run, from the ansible/ directory:
-        env $(grep '^OPNSENSE_API_' ../.env) ANSIBLE_CONFIG=ansible.cfg           ansible-playbook playbooks/opnsense/site.yml
-      They are read as environment variables, so they never reach a disk on
-      the target or its argv.
+        env $(grep '^OPNSENSE_API_' ../.env) ANSIBLE_CONFIG=ansible.cfg ansible-playbook playbooks/opnsense/site.yml
+      They are read as environment variables, so they never reach a disk or
+      a command line.
   when: not opnsense_have_credentials
 
 - name: opnsense_config | Credentials are required
   ansible.builtin.fail:
-    msg: "opnsense_require_credentials is set, but .env has no OPNSENSE_API_KEY / OPNSENSE_API_SECRET."
+    msg: "opnsense_require_credentials is set, but there is no OPNSENSE_API_KEY / OPNSENSE_API_SECRET in the environment."
   when:
     - not opnsense_have_credentials
-    - opnsense_require_credentials | default(false) | bool
+    - opnsense_require_credentials | bool
 
 - name: opnsense_config | Configure the firewall
   when: opnsense_have_credentials
+  # The connection arguments every API call shares, said once.
+  module_defaults:
+    ansibleguy.opnsense.alias: &opnsense_api
+      firewall: "{{ opnsense_host }}"
+      api_port: "{{ opnsense_port }}"
+      api_key: "{{ opnsense_api_key }}"
+      api_secret: "{{ opnsense_api_secret }}"
+      ssl_verify: "{{ opnsense_ssl_verify }}"
+    ansibleguy.opnsense.rule: *opnsense_api
+    ansibleguy.opnsense.unbound_forward: *opnsense_api
+    ansibleguy.opnsense.dnsmasq_range: *opnsense_api
+    ansibleguy.opnsense.dnsmasq_host: *opnsense_api
+    ansible.builtin.uri:
+      url_username: "{{ opnsense_api_key }}"
+      url_password: "{{ opnsense_api_secret }}"
+      force_basic_auth: true
+      validate_certs: "{{ opnsense_ssl_verify | bool }}"
+      return_content: true
   block:
 
     - name: opnsense_config | Firewall is reachable
@@ -66,48 +90,21 @@
       ansible.builtin.fail:
         msg: >-
           Nothing on {{ opnsense_host }}:{{ opnsense_port }}. Is the VM running,
-          and has its WAN interface been given that address? See docs/network.md.
+          and has its WAN interface been given that address? See
+          opnsense-bootstrap.md.
       when: opnsense_reachable is failed
 
-    # The connection arguments every module below shares. Defined once with a
-    # YAML anchor and merged in with <<, so a changed address or key is a
-    # one-line edit rather than twenty.
-    - name: opnsense_config | Build the API connection
-      ansible.builtin.set_fact:
-        opn: &opn
-          firewall: "{{ opnsense_host }}"
-          api_port: "{{ opnsense_port }}"
-          api_key: "{{ opnsense_api_key }}"
-          api_secret: "{{ opnsense_api_secret }}"
-          ssl_verify: "{{ opnsense_ssl_verify }}"
-      no_log: true
-
-    # The rule module talks to the os-firewall plugin's API, which is not part
-    # of the base system.
-    - name: opnsense_config | Install the os-firewall plugin
-      ansibleguy.opnsense.package:
-        name: os-firewall-legacy
-        action: install
-        <<: *opn
-      when: opnsense_install_firewall_plugin | bool
-
-    # ---- read back what the API cannot write ------------------------------
+    # ---- read back what the API cannot write --------------------------------
     # Assigning a NIC and addressing it are console/GUI jobs on 26.7, and so
     # are the gateway the console wizard creates, the hostname and sshd. The
     # API reports all of them, so they are checked rather than trusted.
     #
     # OPNsense labels these JSON responses text/html, so the uri module never
-    # fills in .json - the content gets parsed by hand. Without return_content
-    # there would be nothing to parse.
+    # fills in .json - the content is parsed by hand.
     - name: opnsense_config | Read interfaces, gateways, system and services
       ansible.builtin.uri:
         url: "https://{{ opnsense_host }}:{{ opnsense_port }}/api/{{ item }}"
         method: GET
-        url_username: "{{ opnsense_api_key }}"
-        url_password: "{{ opnsense_api_secret }}"
-        force_basic_auth: true
-        validate_certs: "{{ opnsense_ssl_verify | bool }}"
-        return_content: true
       loop:
         - interfaces/overview/export
         - routing/settings/searchGateway
@@ -144,9 +141,8 @@
           {{ opnsense_missing_ifaces | sort | join(', ') }}.
           Assigned right now: {{ opnsense_assigned_ifaces | join(', ') }}.
           Assigning a NIC is not in the API - do it in the GUI under
-          Interfaces / Assignments (add the device, then set its static IPv4 on
-          the interface's own page) or at the console. The addresses are in
-          docs/network.md. Nothing has been changed by this run.
+          Interfaces / Assignments, or at the console (opnsense-bootstrap.md).
+          Nothing has been changed by this run.
 
     - name: opnsense_config | Interface assignment and addressing match the baseline
       vars:
@@ -172,8 +168,9 @@
           {{ _live.addr4 | default('-') }}, gateway '{{ _cfg.gateway | default('') }}',
           blockbogons {{ _cfg.blockbogons | default('') == '1' }}, blockpriv
           {{ _cfg.blockpriv | default('') == '1' }}. These are console/GUI
-          settings the API cannot write (docs/network.md) - fix the firewall,
-          or the baseline if the firewall is right. Nothing has been changed.
+          settings the API cannot write (opnsense-bootstrap.md) - fix the
+          firewall, or the baseline if the firewall is right. Nothing has been
+          changed.
       loop: "{{ opnsense_baseline_interfaces }}"
       loop_control:
         label: "{{ item.id }}"
@@ -216,272 +213,167 @@
           is {{ _name }} and runs {{ _running | join(', ') }}. Nothing has
           been changed.
 
-    # ---- the net under the trapeze ------------------------------------
-    # OPNsense rolls the configuration back on its own if a savepoint is not
-    # confirmed in time. That is the difference between "I locked myself out
-    # of the firewall" and "it fixed itself a minute later".
-    # Was commented out, and wrong when it was not: a savepoint is taken with
-    # the savepoint module, not by passing action: savepoint to the rule module.
-    #
-    # It also cannot work on OPNsense 26.7 any more, which is why this is
-    # wrapped: the savepoint endpoints went away with the os-firewall plugin
-    # (no longer even an available package - the filter API moved into core,
-    # and core exposes only addRule/setRule/delRule/searchRule/toggleRule/apply).
-    # The collection still posts to /api/firewall/filter/savepoint and gets a
-    # 404. Failing loudly here is deliberate: continuing without the net the
-    # operator asked for is how you end up believing a rollback happened.
-    - name: opnsense_config | Savepoint
-      when: opnsense_use_savepoint | bool
-      block:
-        - name: opnsense_config | Take a savepoint
-          ansibleguy.opnsense.savepoint:
-            action: create
-            <<: *opn
-          register: opnsense_savepoint
+    # ---- write ---------------------------------------------------------------
+    # Aliases first: the rules below refer to them by name.
+    - name: opnsense_config | Aliases
+      ansibleguy.opnsense.alias:
+        name: "{{ item.name }}"
+        type: "{{ item.type }}"
+        content: "{{ item.content }}"
+        description: "{{ item.description | default(omit) }}"
+        state: present
+      loop: "{{ opnsense_aliases }}"
+      loop_control:
+        label: "{{ item.name }}"
 
-      rescue:
-        - name: opnsense_config | No savepoint API on this firewall
-          ansible.builtin.fail:
-            msg: >-
-              opnsense_use_savepoint is true, but this firewall has no
-              savepoint API: OPNsense 26.7 dropped it together with the
-              os-firewall plugin, and ansibleguy.opnsense 1.2.16 still calls
-              POST /api/firewall/filter/savepoint (404 Endpoint not found).
-              There is no API-driven rollback left on this version - the
-              restore endpoint is gone too - so the safety net has to be a
-              config backup taken beforehand:
-              GET /api/core/backup/download/this, restored from the GUI if
-              needed. Re-run without -e opnsense_use_savepoint=true.
+    - name: opnsense_config | Firewall rules
+      ansibleguy.opnsense.rule:
+        action: "{{ item.action | default('pass') }}"
+        description: "{{ item.description }}"
+        sequence: "{{ item.sequence }}"
+        interface: "{{ item.interface }}"
+        direction: "{{ item.direction | default('in') }}"
+        ip_protocol: "{{ item.ip_protocol | default(omit) }}"
+        protocol: "{{ item.protocol | default(omit) }}"
+        source_net: "{{ item.source_net | default(omit) }}"
+        source_port: "{{ item.source_port | default(omit) }}"
+        destination_net: "{{ item.destination_net | default(omit) }}"
+        destination_port: "{{ item.destination_port | default(omit) }}"
+        log: "{{ item.log | default(omit) }}"
+        match_fields: ['description']
+        enabled: true
+        state: present
+      loop: "{{ opnsense_rules }}"
+      loop_control:
+        label: "{{ item.interface }} {{ item.sequence }} {{ item.action }} - {{ item.description }}"
 
-    - name: opnsense_config | Apply the configuration
-      block:
+    # After the rules above, not before: a renamed rule is created first and
+    # its old self removed second, so traffic never meets a gap.
+    - name: opnsense_config | Remove unused firewall rules
+      ansibleguy.opnsense.rule:
+        description: "{{ item }}"
+        match_fields: ['description']
+        state: absent
+      loop: "{{ opnsense_unused_rules }}"
+      loop_control:
+        label: "{{ item }}"
 
-        # Aliases first: the rules below refer to them by name.
-        - name: opnsense_config | Aliases
-          ansibleguy.opnsense.alias:
-            name: "{{ item.name }}"
-            type: "{{ item.type }}"
-            content: "{{ item.content }}"
-            description: "{{ item.description | default(omit) }}"
-            state: present
-            <<: *opn
-          loop: "{{ opnsense_aliases }}"
-          loop_control:
-            label: "{{ item.name }}"
+    - name: opnsense_config | Unbound forwarders
+      ansibleguy.opnsense.unbound_forward:
+        domain: ""
+        target: "{{ item }}"
+        state: present
+      loop: "{{ opnsense_dns_forwarders }}"
+      when: opnsense_dns_enabled | bool
 
-        - name: opnsense_config | Firewall rules
-          ansibleguy.opnsense.rule:
-            action: "{{ item.action | default('pass') }}"
-            description: "{{ item.description }}"
-            sequence: "{{ item.sequence }}"
-            interface: "{{ item.interface }}"
-            direction: "{{ item.direction | default('in') }}"
-            ip_protocol: "{{ item.ip_protocol | default(omit) }}"
-            protocol: "{{ item.protocol | default(omit) }}"
-            source_net: "{{ item.source_net | default(omit) }}"
-            source_port: "{{ item.source_port | default(omit) }}"
-            destination_net: "{{ item.destination_net | default(omit) }}"
-            destination_port: "{{ item.destination_port | default(omit) }}"
-            log: "{{ item.log | default(omit) }}"
-            match_fields: ['description']
-            enabled: true
-            state: present
-            <<: *opn
-          loop: "{{ opnsense_rules }}"
-          loop_control:
-            label: "{{ item.interface }} {{ item.sequence }} {{ item.action }} - {{ item.description }}"
+    # The dnsmasq modules resolve an interface by its DISPLAY NAME, not by the
+    # identifier the filter rules use: find_single_link() matches the option's
+    # 'value' ("LAN", "OPT2"), so passing 'lan' comes back as "Provided
+    # interface 'lan' was not found!" even though lan exists. Read the names
+    # off the firewall instead of hardcoding them.
+    - name: opnsense_config | Read the Dnsmasq settings
+      ansible.builtin.uri:
+        url: "https://{{ opnsense_host }}:{{ opnsense_port }}/api/dnsmasq/settings/get"
+        method: GET
+      register: opnsense_dnsmasq_settings
+      changed_when: false
+      check_mode: false
+      no_log: true
+      when: opnsense_dhcp_enabled | bool
 
-        # After the rules above, not before: a renamed rule is created first
-        # and its old self removed second, so traffic never meets a gap.
-        - name: opnsense_config | Remove unused firewall rules
-          ansibleguy.opnsense.rule:
-            description: "{{ item }}"
-            match_fields: ['description']
-            state: absent
-            <<: *opn
-          loop: "{{ opnsense_unused_rules | default([]) }}"
-          loop_control:
-            label: "{{ item }}"
+    - name: opnsense_config | Map interface identifiers to Dnsmasq names
+      vars:
+        _dnsmasq: "{{ (opnsense_dnsmasq_settings.content | from_json).dnsmasq }}"
+        _listening: >-
+          {{ _dnsmasq.interface | dict2items
+             | selectattr('value.selected', 'equalto', 1)
+             | map(attribute='key') | sort }}
+      ansible.builtin.set_fact:
+        opnsense_dnsmasq_if: >-
+          {{ dict(_dnsmasq.interface | dict2items | map(attribute='key') | list
+                  | zip(_dnsmasq.interface | dict2items | map(attribute='value.value') | list)) }}
+        opnsense_dnsmasq_live: "{{ _listening | join(',') }} port {{ _dnsmasq.port }}"
+        opnsense_dnsmasq_drift: >-
+          {{ _listening != (opnsense_dnsmasq_interfaces | sort)
+             or (_dnsmasq.port | string) != (opnsense_dnsmasq_port | string) }}
+      when: opnsense_dhcp_enabled | bool
 
-        - name: opnsense_config | Unbound forwarders
-          ansibleguy.opnsense.unbound_forward:
-            domain: ""
-            target: "{{ item }}"
-            state: present
-            <<: *opn
-          loop: "{{ opnsense_dns_forwarders }}"
-          when: opnsense_dns_enabled | bool
-
-        # The dnsmasq modules resolve an interface by its DISPLAY NAME, not by
-        # the identifier the filter rules use: find_single_link() matches the
-        # option's 'value' ("LAN", "OPT2"), so passing 'lan' comes back as
-        # "Provided interface 'lan' was not found!" even though lan exists.
-        # Read the names off the firewall instead of hardcoding them - they
-        # follow whatever the interface was called when it was assigned.
-        - name: opnsense_config | Read the Dnsmasq settings
-          ansible.builtin.uri:
-            url: "https://{{ opnsense_host }}:{{ opnsense_port }}/api/dnsmasq/settings/get"
-            method: GET
-            url_username: "{{ opnsense_api_key }}"
-            url_password: "{{ opnsense_api_secret }}"
-            force_basic_auth: true
-            validate_certs: "{{ opnsense_ssl_verify | bool }}"
-            return_content: true
-          register: opnsense_dnsmasq_settings
-          changed_when: false
-          check_mode: false
-          no_log: true
-          when: opnsense_dhcp_enabled | bool
-
-        - name: opnsense_config | Map interface identifiers to Dnsmasq names
-          vars:
-            _dnsmasq: "{{ (opnsense_dnsmasq_settings.content | from_json).dnsmasq }}"
-            _listening: >-
-              {{ _dnsmasq.interface | dict2items
-                 | selectattr('value.selected', 'equalto', 1)
-                 | map(attribute='key') | sort }}
-          ansible.builtin.set_fact:
-            opnsense_dnsmasq_if: >-
-              {{ dict(_dnsmasq.interface | dict2items | map(attribute='key') | list
-                      | zip(_dnsmasq.interface | dict2items | map(attribute='value.value') | list)) }}
-            opnsense_dnsmasq_live: "{{ _listening | join(',') }} port {{ _dnsmasq.port }}"
-            opnsense_dnsmasq_drift: >-
-              {{ _listening != (opnsense_dnsmasq_interfaces | sort)
-                 or (_dnsmasq.port | string) != (opnsense_dnsmasq_port | string) }}
-          when: opnsense_dhcp_enabled | bool
-
-        # A partial update: the settings API only touches the fields it is
-        # given, so the rest of the page (DHCP options, logging, ...) stays as
-        # the GUI left it. dnsmasq_general would rewrite all of it.
-        - name: opnsense_config | Dnsmasq listen interfaces and DNS port
-          ansible.builtin.uri:
-            url: "https://{{ opnsense_host }}:{{ opnsense_port }}/api/dnsmasq/settings/set"
-            method: POST
-            body_format: json
-            body:
-              dnsmasq:
-                interface: "{{ opnsense_dnsmasq_interfaces | join(',') }}"
-                port: "{{ opnsense_dnsmasq_port | string }}"
-            url_username: "{{ opnsense_api_key }}"
-            url_password: "{{ opnsense_api_secret }}"
-            force_basic_auth: true
-            validate_certs: "{{ opnsense_ssl_verify | bool }}"
-            return_content: true
-          register: opnsense_dnsmasq_set
-          changed_when: true
-          failed_when: >-
-            (opnsense_dnsmasq_set.content | default('{}') | from_json).result | default('')
-            != 'saved'
-          no_log: true
-          when:
-            - opnsense_dhcp_enabled | bool
-            - opnsense_dnsmasq_drift | bool
-            - not ansible_check_mode
-
-        - name: opnsense_config | Apply the Dnsmasq settings
-          ansible.builtin.uri:
-            url: "https://{{ opnsense_host }}:{{ opnsense_port }}/api/dnsmasq/service/reconfigure"
-            method: POST
-            body_format: json
-            body: {}
-            url_username: "{{ opnsense_api_key }}"
-            url_password: "{{ opnsense_api_secret }}"
-            force_basic_auth: true
-            validate_certs: "{{ opnsense_ssl_verify | bool }}"
-          changed_when: true
-          no_log: true
-          when: opnsense_dnsmasq_set is changed
-
-        - name: opnsense_config | Dnsmasq settings would change
-          ansible.builtin.debug:
-            msg: >-
-              Dnsmasq listens on {{ opnsense_dnsmasq_live }}; a real run sets
-              {{ opnsense_dnsmasq_interfaces | join(',') }} port
-              {{ opnsense_dnsmasq_port }}.
-          changed_when: true
-          when:
-            - opnsense_dhcp_enabled | bool
-            - opnsense_dnsmasq_drift | bool
-            - ansible_check_mode
-
-        - name: opnsense_config | DHCP pools
-          ansibleguy.opnsense.dnsmasq_range:
-            interface: "{{ opnsense_dnsmasq_if[opnsense_if[item.key]] }}"
-            start_addr: "{{ item.value.dhcp_from }}"
-            end_addr: "{{ item.value.dhcp_to }}"
-            subnet_mask: "255.255.255.0"
-            description: "{{ item.key | upper }} pool"
-            # These ranges are IPv4, so ra_mode is never set - but the module
-            # declares it as a list without a default, turns the unset value
-            # into "" and then compares that against the [] OPNsense stores.
-            # Left out, every single run reports "changed" and rewrites the
-            # range (and reloads dnsmasq) for a field nothing here uses.
-            ra_mode: []
-            state: present
-            <<: *opn
-          loop: "{{ opnsense_segments | dict2items }}"
-          loop_control:
-            label: "{{ item.key }}"
-          when:
-            - opnsense_dhcp_enabled | bool
-            - item.value.dhcp_from | length > 0
-
-        - name: opnsense_config | DHCP reservations
-          ansibleguy.opnsense.dnsmasq_host:
-            host: "{{ item.host }}"
-            hardware_addr: "{{ item.hardware_addr }}"
-            ip: "{{ item.ip }}"
-            description: "{{ item.description | default(omit) }}"
-            state: present
-            <<: *opn
-          loop: "{{ opnsense_dhcp_reservations }}"
-          loop_control:
-            label: "{{ item.host }} -> {{ item.ip }}"
-          when: opnsense_dhcp_enabled | bool
-
-      rescue:
-        - name: opnsense_config | Roll back to the savepoint
-          ansibleguy.opnsense.savepoint:
-            action: revert
-            revision: "{{ opnsense_savepoint.revision | default(omit) }}"
-            <<: *opn
-          when:
-            - opnsense_use_savepoint | bool
-            - opnsense_savepoint.revision is defined
-
-        # This used to claim a rollback unconditionally, which was a lie
-        # whenever opnsense_use_savepoint was false (the default) - the run
-        # said "nothing was left half applied" while nothing had been
-        # protected at all. Say what actually happened.
-        - name: opnsense_config | Report the failure
-          ansible.builtin.fail:
-            msg: >-
-              {{
-                'Configuration failed. The firewall was rolled back to the
-                 savepoint taken at the start of this run, so nothing was left
-                 half applied.'
-                if (opnsense_use_savepoint | bool and opnsense_savepoint.revision is defined)
-                else 'Configuration failed and NO savepoint was taken, so
-                      whatever had already been applied is still in place and
-                      live - check the firewall before re-running. Do not
-                      reach for -e opnsense_use_savepoint=true: OPNsense 26.7
-                      has no savepoint API (see the Savepoint block above).
-                      The safety net on this version is a config backup taken
-                      beforehand, GET /api/core/backup/download/this, restored
-                      from the GUI if it comes to that. This role is
-                      idempotent, so re-running after fixing the cause is
-                      safe.'
-              }}
-
-    # Confirming is what stops OPNsense reverting on its own.
-    - name: opnsense_config | Confirm the savepoint
-      ansibleguy.opnsense.savepoint:
-        action: apply
-        revision: "{{ opnsense_savepoint.revision | default(omit) }}"
-        <<: *opn
+    # A partial update: the settings API only touches the fields it is given,
+    # so the rest of the page (DHCP options, logging, ...) stays as the GUI
+    # left it. dnsmasq_general would rewrite all of it.
+    - name: opnsense_config | Dnsmasq listen interfaces and DNS port
+      ansible.builtin.uri:
+        url: "https://{{ opnsense_host }}:{{ opnsense_port }}/api/dnsmasq/settings/set"
+        method: POST
+        body_format: json
+        body:
+          dnsmasq:
+            interface: "{{ opnsense_dnsmasq_interfaces | join(',') }}"
+            port: "{{ opnsense_dnsmasq_port | string }}"
+      register: opnsense_dnsmasq_set
+      changed_when: true
+      failed_when: >-
+        (opnsense_dnsmasq_set.content | default('{}') | from_json).result | default('')
+        != 'saved'
+      no_log: true
       when:
-        - opnsense_use_savepoint | bool
-        - opnsense_savepoint.revision is defined
+        - opnsense_dhcp_enabled | bool
+        - opnsense_dnsmasq_drift | bool
+        - not ansible_check_mode
+
+    - name: opnsense_config | Apply the Dnsmasq settings
+      ansible.builtin.uri:
+        url: "https://{{ opnsense_host }}:{{ opnsense_port }}/api/dnsmasq/service/reconfigure"
+        method: POST
+        body_format: json
+        body: {}
+      changed_when: true
+      no_log: true
+      when: opnsense_dnsmasq_set is changed
+
+    - name: opnsense_config | Dnsmasq settings would change
+      ansible.builtin.debug:
+        msg: >-
+          Dnsmasq listens on {{ opnsense_dnsmasq_live }}; a real run sets
+          {{ opnsense_dnsmasq_interfaces | join(',') }} port
+          {{ opnsense_dnsmasq_port }}.
+      changed_when: true
+      when:
+        - opnsense_dhcp_enabled | bool
+        - opnsense_dnsmasq_drift | bool
+        - ansible_check_mode
+
+    - name: opnsense_config | DHCP pools
+      ansibleguy.opnsense.dnsmasq_range:
+        interface: "{{ opnsense_dnsmasq_if[opnsense_if[item.key]] }}"
+        start_addr: "{{ item.value.dhcp_from }}"
+        end_addr: "{{ item.value.dhcp_to }}"
+        subnet_mask: "255.255.255.0"
+        description: "{{ item.key | upper }} pool"
+        # These ranges are IPv4, so ra_mode is never set - but the module
+        # declares it as a list without a default, turns the unset value into
+        # "" and compares that against the [] OPNsense stores. Left out, every
+        # run reports "changed" and rewrites the range (and reloads dnsmasq).
+        ra_mode: []
+        state: present
+      loop: "{{ opnsense_segments | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+      when:
+        - opnsense_dhcp_enabled | bool
+        - item.value.dhcp_from | length > 0
+
+    - name: opnsense_config | DHCP reservations
+      ansibleguy.opnsense.dnsmasq_host:
+        host: "{{ item.host }}"
+        hardware_addr: "{{ item.hardware_addr }}"
+        ip: "{{ item.ip }}"
+        description: "{{ item.description | default(omit) }}"
+        state: present
+      loop: "{{ opnsense_dhcp_reservations }}"
+      loop_control:
+        label: "{{ item.host }} -> {{ item.ip }}"
+      when: opnsense_dhcp_enabled | bool
 
 - name: opnsense_config | Dry-run note
   ansible.builtin.debug:

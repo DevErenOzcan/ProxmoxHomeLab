@@ -1,8 +1,9 @@
 # Network design
 
 Everything the guests do goes through an OPNsense firewall. This document is
-the design and the post-install runbook — the parts Terraform and Ansible
-cannot do for you, because OPNsense has no unattended installer.
+the design: the topology, the address plan, the firewall policy and how to
+verify it. Building it is in the bootstrap guides at the repo root
+([opnsense-bootstrap.md](../opnsense-bootstrap.md) for the firewall).
 
 ## The constraint that shapes everything
 
@@ -27,9 +28,9 @@ internet ── home router (192.168.1.1)
               vmbr1               vmbr2               vmbr3
               vtnet1              vtnet2              vtnet3
           LAN 10.10.10.1      DMZ 10.10.20.1      LAB 10.10.30.1
-          trusted guests      Cloudflare-facing   experiments,
-                              services +          quarantine
-                              cloudflared
+          trusted guests      internet-facing     experiments,
+                              services, each      quarantine
+                              with cloudflared
 ```
 
 **The Proxmox host is deliberately not behind the firewall.** If it were, a
@@ -52,7 +53,7 @@ them from the home network needs **exactly one** static route instead of three:
 10.10.0.0/16  →  192.168.1.201
 ```
 
-The old flat `192.168.3.0/24` is gone.
+Where that route lives is in [Reaching the segments from home](#reaching-the-segments-from-home).
 
 ## Address plan
 
@@ -60,16 +61,15 @@ The old flat `192.168.3.0/24` is gone.
 |---|---|---|---|---|---|
 | WAN | `vmbr0` | `vtnet0` | 192.168.1.0/24 | 192.168.1.1 | Faces the home network |
 | LAN | `vmbr1` | `vtnet1` | 10.10.10.0/24 | 10.10.10.1 | Trusted guests |
-| DMZ | `vmbr2` | `vtnet2` | 10.10.20.0/24 | 10.10.20.1 | Internet-facing services, cloudflared |
+| DMZ | `vmbr2` | `vtnet2` | 10.10.20.0/24 | 10.10.20.1 | Internet-facing services, each with its own cloudflared |
 | LAB | `vmbr3` | `vtnet3` | 10.10.30.0/24 | 10.10.30.1 | Experiments, quarantine |
 
-Reserved static addresses:
+Fixed addresses:
 
 | Address | Host |
 |---|---|
 | 192.168.1.200 | Proxmox host |
 | 192.168.1.201 | OPNsense WAN |
-| 10.10.20.10 | cloudflared container (reserved, not built yet) |
 | 10.10.10.11 | ubuntu-desktop (VM 102), DHCP reservation on `BC:24:11:B8:0E:F8` |
 
 DHCP pools are `10.10.10.100-245` (LAN) and `10.10.30.100-199` (LAB) and are
@@ -83,126 +83,34 @@ your head.
 > `terraform/modules/opnsense/main.tf` is safe; **reordering** the
 > `network_device` blocks silently rewires a running firewall.
 
-## Order of operations
+## Building it
 
-This is the order for building the network from scratch. Everything runs from
-your own machine; the exact command lines are in [commands.md](../commands.md).
+The order matters: the bridges are host state, and the desktop needs a gateway
+that already exists.
 
-**1. Create the bridges** — host OS state, so this is Ansible's job:
-`playbooks/proxmox/site.yml` (or just `--tags network`).
-
-**2. Create the firewall VM, with its WAN unplugged** — and without the
-desktop, which needs the firewall as its gateway:
-
-```bash
-terraform apply -var-file=secret.tfvars \
-  -var firewall_wan_connected=false -var create_desktop=false
-```
-
-**3. Install and configure OPNsense** — the sections below. This part is
-manual: OPNsense has no unattended installer.
-
-**4. Add the static route** on the home router, or on each client.
-
-**5. Apply the firewall configuration** — `playbooks/opnsense/site.yml`.
-
-**6. Create the desktop** — a plain `terraform apply -var-file=secret.tfvars`.
-
-## Installing OPNsense
-
-> **The WAN interface starts unplugged, and it has to.** A fresh OPNsense
-> applies a factory config of `LAN = 192.168.1.1/24` with a DHCP server on it.
-> This home network already uses 192.168.1.0/24, so the moment that config
-> touches `vmbr0` the VM starts answering ARP for the real router's address and
-> serving its own leases — the whole house loses internet, not just the lab.
-> That is not hypothetical; it happened here on 2026-09-09 and took the host's
-> own DNS down with it.
->
-> Pass `-var firewall_wan_connected=false` for the install, which sets
-> `disconnected` on net0. Install and assign interfaces first, then connect it.
-> The variable defaults to `true` only because the running firewall is
-> installed - with `false`, an apply would unplug it.
-
-Open the VM console in the Proxmox UI (`opnsense-fw` → Console).
-
-1. The installer boots into a live environment. Log in as **`installer`** with
-   password **`opnsense`**. Follow the guided install, then reboot.
-2. At the console menu choose **1) Assign interfaces**. Decline LAGG and VLAN
-   setup, then assign:
-
-   | Prompt | Answer |
-   |---|---|
-   | WAN | `vtnet0` |
-   | LAN | `vtnet1` |
-   | Optional 1 | `vtnet2` |
-   | Optional 2 | `vtnet3` |
-
-3. Choose **2) Set interface IP address** and give each one its address from
-   the table above. WAN is static `192.168.1.201/24` with gateway
-   `192.168.1.1` (the console names that gateway `WAN_GW`); say no to DHCP on
-   every interface for now; say no to IPv6.
-
-4. Only now plug WAN in - a plain apply, since the variable defaults to
-   `true`:
-
-   ```bash
-   terraform apply -var-file=secret.tfvars -var create_desktop=false
-   ```
-
-   Until this runs, the firewall can see its internal segments but not the home
-   network — which is exactly what you want while it still thinks it is
-   192.168.1.1.
-
-5. Set what the API cannot. Each of these is read back by every run of
-   `playbooks/opnsense/site.yml`, which stops before writing anything if one
-   differs (`opnsense_baseline_*` in the role's defaults); the rest are the
-   values the running firewall has:
-
-   | Where | Setting | Value |
-   |---|---|---|
-   | System → Settings → General | Hostname / Domain | `OPNsense` / `internal` (checked) |
-   | System → Settings → General | Time zone | `Etc/UTC` |
-   | System → Settings → General | DNS servers | `192.168.1.1` |
-   | System → Settings → General | Allow DNS server list to be overridden by DHCP/PPP on WAN | on |
-   | System → Settings → Administration | Secure Shell: enabled, root login, password login | on (sshd running is checked) |
-   | Interfaces → WAN | Block private networks | **off** (checked) |
-   | Interfaces → WAN | Block bogon networks | on (checked) |
-   | System → Access → Users → root | API key | the one `.env` holds |
-
-   *Block private networks* has to stay off in this topology: WAN **is** the
-   home network, and that checkbox drops it with a quick rule ahead of every
-   WAN pass rule. It locked every home-network client out of the firewall on
-   2026-09-17.
-
-### Getting into the web UI the first time
-
-This is the one genuinely awkward step. OPNsense creates an anti-lockout rule
-on LAN only, and nothing is on the LAN segment yet — while the WAN interface
-blocks all inbound traffic and has *Block private networks* enabled. So the UI
-is reachable from neither side.
-
-From the console menu pick **8) Shell** and disable the packet filter:
-
-```
-pfctl -d
-```
-
-Now browse to **`https://192.168.1.201`** from your own machine — that address
-is on your own subnet, so no static route is needed yet. Log in as `root` /
-`opnsense`, run the setup wizard, and add the rules below. Then re-enable the
-filter (`pfctl -e`) or just reboot the VM; the WAN rule you added keeps the UI
-reachable from then on.
+1. The host and its bridges: [proxmox-bootstrap.md](../proxmox-bootstrap.md).
+2. The firewall, installed with its WAN unplugged:
+   [opnsense-bootstrap.md](../opnsense-bootstrap.md).
+3. The desktop: [ubuntu-desktop-bootstrap.md](../ubuntu-desktop-bootstrap.md).
 
 ## Firewall policy
 
-The requirement is asymmetric: **guests must not reach the home network, but
-you must be able to reach the guests.** A stateful firewall does exactly this —
-you allow the inbound direction on WAN and block the outbound direction on each
-internal interface. Replies flow on existing state, so nothing else is needed.
+The policy is asymmetric on purpose:
 
-These tables are the rules the firewall runs (2026-10-03), one for one with
+- **LAN is trusted.** Its machines reach everything, the home network
+  included, and the home network reaches them: two-way.
+- **DMZ and LAB reach the internet and nothing else.** Nothing there can open a
+  connection into the LAN, the home network or each other's segment.
+- **From home, only the LAN is reachable.** DMZ and LAB machines are managed
+  through a LAN machine.
+
+A stateful firewall needs only the initiating direction allowed; replies ride
+the existing state.
+
+These tables are the rules the firewall runs, one for one with
 `opnsense_rules` in `ansible/roles/opnsense_config/defaults/main.yml`; `seq` is
-the rule's sequence there. Two aliases keep them readable:
+the rule's sequence there. Traffic no rule matches falls to OPNsense's implicit
+default block. Two aliases keep the rules readable:
 
 | Alias | Type | Content |
 |---|---|---|
@@ -237,10 +145,9 @@ LAN — their own sequence 30 blocks `LAB_NETS`, which covers `10.10.10.0/24`.
 |---|---|---|---|---|---|
 | 50 | Pass | 10.10.10.0/24 | any | any (IPv4) | Everything; not logged |
 
-One rule on purpose. The installer's default allow-all rules and the per-path
-rules that sat under them (DNS, DMZ, internet, and two blocks that never
-matched) were removed on 2026-10-03 through `opnsense_unused_rules`. Nothing
-on the LAN uses IPv6, so no IPv6 rule is kept.
+One rule on purpose: it replaced the installer's default allow-all rules and
+the per-path rules that sat unreachable under them. Nothing on the LAN uses
+IPv6, so there is no IPv6 rule.
 
 ### DMZ (`vtnet2`)
 
@@ -295,29 +202,28 @@ changing both the forwarder (`opnsense_dns_forwarders`) and that page.
 **Dnsmasq** does DHCP only: its DNS port is moved to 53053 so it cannot collide
 with Unbound, and it listens on LAN and LAB - the two segments with a pool.
 
-## The static route on the home router
+## Reaching the segments from home
 
-Add one route:
-
-| Field | Value |
-|---|---|
-| Destination | `10.10.0.0` |
-| Netmask | `255.255.0.0` |
-| Gateway | `192.168.1.201` |
-
-If the router cannot do static routes, put the route on your own machine
-instead — that satisfies "I can reach the guests from my LAN" for you
-personally, which is what was actually asked:
-
-```bash
-sudo ip route add 10.10.0.0/16 via 192.168.1.201
-```
+A machine on the home network reaches the LAN through the firewall's WAN
+address, so it needs one route: `10.10.0.0/16` via `192.168.1.201`. The home
+router (the ISP's ONT, with a restricted admin account) cannot hold a static
+route, so the route lives on the machines that need it - today only the
+Windows workstation that runs the controller:
 
 ```powershell
 route -p add 10.10.0.0 mask 255.255.0.0 192.168.1.201
 ```
 
-`terraform output fallback_route_commands` prints the macOS variant too.
+```bash
+sudo ip route add 10.10.0.0/16 via 192.168.1.201      # Linux
+```
+
+`terraform output fallback_route_commands` prints the macOS variant too. A
+router that can hold it needs the same route once: destination `10.10.0.0`,
+netmask `255.255.0.0`, gateway `192.168.1.201`.
+
+The other direction needs no route: LAN traffic to the home network leaves
+NATed as `192.168.1.201`, so home devices can answer it as they are.
 
 ## Configuration as code
 
@@ -336,27 +242,12 @@ what it can only report is declared there too, and checked:
 | Gateway `WAN_GW` | `opnsense_baseline_gateways` | checked |
 | Hostname, running sshd/unbound/dnsmasq | `opnsense_baseline_hostname`, `opnsense_baseline_services` | checked |
 
-The rest of the console/GUI settings (time zone, DNS servers, SSH options) are
-in the install steps above. The command lines are in
-[commands.md](../commands.md); `--check --diff` is a real dry run - the checks
-are reads, the modules compare without writing, and every `changed` in it is a
-difference between the code and the firewall.
-
-### The one-time credential
-
-Create an API key once, in the GUI: **System → Access → Users → root → API
-keys → +**. That downloads a file containing a key and a secret. Put both in
-`.env`, under exactly these names - the role reads them with
-`lookup('env', ...)`:
-
-```
-OPNSENSE_API_KEY=...
-OPNSENSE_API_SECRET=...
-```
-
-Nothing loads `.env` by itself; the command in commands.md puts the two values
-into the environment of that one run. Without them the role prints how to
-create them and skips; it does not fail the converge.
+The rest of the console/GUI settings (time zone, DNS servers, SSH options) and
+the one-time API key are in [opnsense-bootstrap.md](../opnsense-bootstrap.md).
+The command lines are in the README, "Day to day"; `--check --diff` is a real
+dry run - the checks are reads, the modules compare without writing, and every
+`changed` in it is a difference between the code and the firewall. Without the
+API key in its environment the role prints how to create one and skips.
 
 ### What protects a run
 
@@ -399,10 +290,9 @@ at once.
 ## Where Cloudflare fits
 
 Each machine on the **DMZ** runs its services in Docker next to its own
-`cloudflared`, which dials *out* to Cloudflare on 443. (The `10.10.20.10`
-reservation is from an earlier single-container plan.) Nothing listens on your home IP, and the home
-router forwards no ports — that is the whole point of choosing Tunnel over
-public DNS plus port forwarding.
+`cloudflared`, which dials *out* to Cloudflare on 443. Nothing listens on your
+home IP, and the home router forwards no ports — that is the whole point of
+choosing Tunnel over public DNS plus port forwarding.
 
 Consequences that are already baked into the rules above:
 

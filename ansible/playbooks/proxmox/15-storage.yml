@@ -1,12 +1,10 @@
 ---
-# Proxmox storage definitions that differ from the installer's: the content
-# types of "local". nvme0n1 is deliberately absent - it belongs to VM 102.
+# Storage that differs from the installer's: the content types of "local".
+# nvme0n1 is deliberately absent - it belongs to VM 102.
 - name: Storage
   hosts: proxmox_nodes
   become: true
   gather_facts: true
   roles:
-    - role: pve_common
-      tags: [always]
     - role: pve_storage
       tags: [storage]

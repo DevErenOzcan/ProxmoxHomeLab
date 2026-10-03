@@ -9,20 +9,16 @@
 # "distrobuilder-..." hostname, netplan's 10-lxc.yaml) are not repeated here.
 # Inventoried from the running guest on 2026-10-03.
 
-ansible_managed: "Managed by proxmox-homelab (ansible) - do not edit by hand"
-
 # --- Reaching it -------------------------------------------------------------
-# Directly: the workstation running ansible carries the route
-# "10.10.0.0/16 via 192.168.1.201" (docs/network.md, "The static route on the
-# home router"). No ProxyJump through pve1: the host has no route into the
-# lab, by design.
+# Directly: the controller carries the route "10.10.0.0/16 via 192.168.1.201"
+# (README, "Controller setup"). No ProxyJump through pve1: the host has no
+# route into the lab, by design.
 ansible_ssh_common_args: "-o StrictHostKeyChecking=accept-new"
 
 # --- SSH ---------------------------------------------------------------------
-# The image ships no openssh-server. It was installed at the console on
-# 2026-09-18 together with this key - the one-time bootstrap in commands.md -
-# and ansible keeps both from then on. The key is the controller's
-# (WSL ~/.ssh/id_ed25519.pub).
+# The image ships no openssh-server. It was installed at the console together
+# with this key (ubuntu-desktop-bootstrap.md), and ansible keeps both from then
+# on. The key is the controller's (WSL ~/.ssh/id_ed25519.pub).
 desktop_user: ubuntu
 desktop_authorized_keys:
   - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMCdb2x7BVEHm0qXNTy2RiEHRV+osCiw7DS5eBQD+yXE ansible-wsl"

@@ -3,12 +3,13 @@
 # OPNsense configuration as code
 # =============================================================================
 # Everything below is applied through the OPNsense REST API by the
-# ansibleguy.opnsense collection. This is the part of the firewall that used to
-# be twenty screens of clicking: aliases, rules, NAT, DNS, DHCP.
+# ansibleguy.opnsense collection: aliases, filter rules, DNS forwarding, the
+# Dnsmasq listen settings, DHCP pools and reservations.
 #
-# NOT covered here, because the API does not expose it: assigning interfaces to
-# NICs and giving them addresses. That stays a one-time console job, described
-# in docs/network.md.
+# NOT covered, because the API does not expose it: assigning interfaces to
+# NICs, their addresses, the WAN gateway, the hostname and sshd. Those are a
+# one-time console/GUI job (opnsense-bootstrap.md); this role reads them back
+# and refuses to run when they differ from the baseline at the bottom.
 
 # --- connection -------------------------------------------------------------
 opnsense_host: "192.168.1.201"
@@ -16,29 +17,15 @@ opnsense_port: 443
 # Self-signed certificate on a lab firewall; nothing here crosses the internet.
 opnsense_ssl_verify: false
 
-# Credentials arrive as environment variables, so they never reach a disk on
-# the target or any argv. Nothing loads .env for you - prefix the run with
-# them, from ansible/:
-#   env $(grep '^OPNSENSE_API_' ../.env) ANSIBLE_CONFIG=ansible.cfg #     ansible-playbook playbooks/opnsense/site.yml
+# Credentials arrive as environment variables, so they never reach a disk or a
+# command line. Nothing loads .env for you - prefix the run with them, from
+# ansible/:
+#   env $(grep '^OPNSENSE_API_' ../.env) ANSIBLE_CONFIG=ansible.cfg ansible-playbook playbooks/opnsense/site.yml
 # Create the key once: GUI -> System -> Access -> Users -> root -> API keys -> +
 opnsense_api_key: "{{ lookup('env', 'OPNSENSE_API_KEY') }}"
 opnsense_api_secret: "{{ lookup('env', 'OPNSENSE_API_SECRET') }}"
-
-# --- behaviour --------------------------------------------------------------
-# The rule module drives the os-firewall plugin, so it has to be installed.
-opnsense_install_firewall_plugin: false
-
-# Wrap the run in a savepoint. That WAS the difference between "I locked myself
-# out" and "it fixed itself in 60 seconds" - but it is unavailable on OPNsense
-# 26.7: the savepoint endpoints disappeared with the os-firewall plugin (the
-# filter API is core now and has no savepoint), so the collection's call 404s.
-# Setting this true therefore fails the run on purpose rather than pretending.
-# Verified on 26.7.3 against the API and docs.opnsense.org, 2026-09-14.
-opnsense_use_savepoint: false
-
-# Remove rules and aliases this repo does not declare. Off by default so the
-# role can be introduced next to hand-made configuration without eating it.
-opnsense_purge_unmanaged: false
+# Fail instead of skipping when the credentials are missing.
+opnsense_require_credentials: false
 
 # --- the network, mirroring terraform/environments/production/locals.tf -----
 opnsense_home_lan: "192.168.1.0/24"
@@ -75,7 +62,7 @@ opnsense_aliases:
 # firewall needs only the initiating direction allowed; replies ride the
 # existing state.
 #
-# Rule 1 on WAN is the one that keeps you in the building. Do not remove it
+# WAN sequence 10 is the one that keeps you in the building. Do not remove it
 # without another way to reach the GUI.
 #
 # 'log' defaults to true in the rule module, which is why every rule below
@@ -211,19 +198,10 @@ opnsense_rules:
     source_net: "{{ opnsense_segments.lab.cidr }}"
     destination_net: any
 
-# Rules to delete from the firewall, by description (2026-10-03). The LAN's
-# installer defaults and its per-path rules gave way to "LAN may reach
-# anything"; the two LAN blocks never matched; the WAN rule into every
-# segment became "Home network may reach the LAN segment".
-opnsense_unused_rules:
-  - "Default allow LAN to any rule"
-  - "Default allow LAN IPv6 to any rule"
-  - "LAN may use the gateway for DNS"
-  - "LAN may reach DMZ services"
-  - "LAN may reach the internet"
-  - "LAN must not reach the home network"
-  - "LAN must not reach the lab segment"
-  - "Home LAN may reach the lab segments"
+# Rules to delete from the firewall, by description. To rename a rule, change
+# its description above and list the old one here: the new rule is written
+# first, the old one removed after it. Empty once nothing is pending.
+opnsense_unused_rules: []
 
 # --- DNS --------------------------------------------------------------------
 # The segments are firewalled off from the home router, so they cannot ask it
@@ -256,8 +234,8 @@ opnsense_dhcp_reservations:
 
 # --- console/GUI baseline: verified, never written --------------------------
 # What OPNsense 26.7's API can report but not write. These are set once at the
-# console or in the GUI (docs/network.md, "Installing OPNsense"); every run
-# reads them back and stops before changing anything if they differ.
+# console or in the GUI (opnsense-bootstrap.md); every run reads them back and
+# stops before changing anything if they differ.
 #
 # blockpriv must stay false: WAN *is* the home network here, and "Block
 # private networks" drops it with a quick rule ahead of every WAN pass rule
