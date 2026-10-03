@@ -1,10 +1,15 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Homelab Ağ Haritası</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
 :root {
-  /* Layout: network documentation sheet. The topology drawing is the hero, with a flow picker above it and numbered hops under it; reachability matrix, rule sheets, inventory, services and open items follow. Segment colors follow patch-cable jackets: graphite home, blue LAN, orange DMZ, purple LAB. */
+  /* Layout: network documentation sheet. The topology drawing is the hero, with a flow picker above it and numbered hops under it; reachability matrix, rule sheets, inventory and services follow. Segment colors follow patch-cable jackets: graphite home, blue LAN, orange DMZ, purple LAB. */
   --bg: #f1f3f2;
   --panel: #fbfcfc;
   --panel-2: #e7ebe9;
@@ -20,6 +25,7 @@
   --font-display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
   --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -35,7 +41,10 @@
 }
 
 * { box-sizing: border-box; }
-body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.55; }
+/* Browsers honour the hidden attribute on HTML elements only; the flow layers
+   are SVG <g> elements, so without this rule every flow shows at once. */
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.55; }
 .sheet { max-width: 1240px; margin-inline: auto; padding-inline: clamp(16px, 3vw, 32px); padding-block: 28px 64px; display: grid; gap: 48px; }
 .sheet > * { min-width: 0; }
 code, .mono { font-family: var(--font-mono); font-size: 0.86em; }
@@ -195,25 +204,18 @@ td.warn { color: var(--bad); }
 .svc ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 14px; }
 .svc .where { margin: 0; font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
 
-.issues { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
-.issues li { display: grid; grid-template-columns: 118px minmax(0, 1fr); gap: 14px; padding: 13px 16px; border-bottom: 1px solid var(--line); }
-.issues li:last-child { border-bottom: 0; }
-.tag { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; border: 1px solid var(--line); border-radius: 4px; padding: 3px 7px; justify-self: start; align-self: start; color: var(--muted); white-space: nowrap; }
-.tag.crit { color: var(--bad); border-color: var(--bad); }
-.issues b { font-weight: 600; }
-.issues p { margin: 2px 0 0; color: var(--muted); font-size: 14px; max-width: 90ch; }
-@media (max-width: 560px) { .issues li { grid-template-columns: minmax(0, 1fr); gap: 6px; } }
-
 .foot { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 16px; max-width: 110ch; }
 .foot p { margin: 0 0 6px; }
 </style>
+</head>
+<body>
 
 <div class="sheet" lang="tr">
 
 <header>
   <p class="eyebrow">ProxmoxHomeLab · canlı durum ve LAN politikası · 3 Ekim 2026</p>
   <h1>Homelab Ağ Haritası</h1>
-  <p class="lede">Tek fiziksel ağ kartı olan bir dizüstünde router-on-a-stick kurulumu. OPNsense'in WAN bacağı ev ağında, Proxmox host'uyla aynı köprüde duruyor. Üç iç segment yalnızca host içindeki port'suz köprülerde yaşıyor; ev ağı ile lab arasındaki her IPv4 paketi firewall'dan geçiyor. LAN güvenilir segment: ev ağıyla iki yönlü konuşur, DMZ'ye ve LAB'e ulaşır, Proxmox'a da firewall üzerinden 192.168.1.200 ile gider. DMZ ve LAB yalnızca internete çıkar; LAN'a ve ev ağına bağlantı açamaz. Değerler canlı sistemlerden okundu ve repodaki kodla eşleşiyor; tek fark en alttaki bekleyen terraform işi.</p>
+  <p class="lede">Tek fiziksel ağ kartı olan bir dizüstünde router-on-a-stick kurulumu. OPNsense'in WAN bacağı ev ağında, Proxmox host'uyla aynı köprüde duruyor. Üç iç segment yalnızca host içindeki port'suz köprülerde yaşıyor; ev ağı ile lab arasındaki her IPv4 paketi firewall'dan geçiyor. LAN güvenilir segment: ev ağıyla iki yönlü konuşur, DMZ'ye ve LAB'e ulaşır, Proxmox'a da firewall üzerinden 192.168.1.200 ile gider. DMZ ve LAB yalnızca internete çıkar; LAN'a ve ev ağına bağlantı açamaz. Değerler canlı sistemlerden okundu ve repodaki kodla birebir eşleşiyor: Ansible <code>--check</code> ve <code>terraform plan</code> değişiklik bulmuyor.</p>
   <ul class="stats">
     <li>1 fiziksel uplink · nic0 · 1 Gbit</li>
     <li>4 firewall arayüzü</li>
@@ -296,7 +298,6 @@ td.warn { color: var(--bad); }
         <line class="ln-lan" x1="86" y1="716" x2="86" y2="776"/>
         <line class="ln-dmz dashed" x1="446" y1="716" x2="446" y2="776"/>
 
-
         <!-- ports -->
         <rect class="port p-wan" x="748" y="365" width="24" height="14" rx="3"/>
         <rect class="port p-off" x="880" y="365" width="24" height="14" rx="3"/>
@@ -374,7 +375,6 @@ td.warn { color: var(--bad); }
         <text class="ts" x="84" y="847">açık: SSH 22 · RDP 3389</text>
         <text class="ts mu" x="84" y="863">iGPU + RTX 3050 Ti · 8 USB</text>
         <text class="ts mu" x="84" y="879">nvme0n1 passthrough</text>
-
 
         <text class="tt" x="444" y="797">Docker makineleri · planlı</text>
         <text class="ts" x="444" y="814">her biri kendi cloudflared'iyle</text>
@@ -562,7 +562,6 @@ td.warn { color: var(--bad); }
       </div>
     </div>
 
-
     <div class="hop bad" data-flow="engel" hidden>
       <div>
         <span class="verdict bad">engelli</span>
@@ -728,7 +727,7 @@ td.warn { color: var(--bad); }
         <tr><td>OPNsense vtnet1 (net1) · LAN</td><td>vmbr1</td><td>BC:24:11:40:72:AD</td><td>10.10.10.1/24</td><td>DHCP .100–.245</td><td>terraform: modules/opnsense · ansible: opnsense_config</td></tr>
         <tr><td>OPNsense vtnet2 (net2) · DMZ (opt1)</td><td>vmbr2</td><td>BC:24:11:97:40:B5</td><td>10.10.20.1/24</td><td>DHCP yok</td><td>terraform: modules/opnsense · ansible: opnsense_config</td></tr>
         <tr><td>OPNsense vtnet3 (net3) · LAB (opt2)</td><td>vmbr3</td><td>BC:24:11:46:18:20</td><td>10.10.30.1/24</td><td>DHCP .100–.199</td><td>terraform: modules/opnsense · ansible: opnsense_config</td></tr>
-        <tr><td>VM 102 net0 · enp6s18</td><td>vmbr1</td><td>BC:24:11:B8:0E:F8</td><td>10.10.10.11/24</td><td>DHCP rezervasyonu; SSH 22, RDP 3389; docker0 172.17.0.1/16 kapalı. Canlıda firewall=1, kodda 0 (terraform apply bekliyor)</td><td>terraform: modules/ubuntu_desktop · ansible: opnsense_dhcp_reservations</td></tr>
+        <tr><td>VM 102 net0 · enp6s18</td><td>vmbr1</td><td>BC:24:11:B8:0E:F8</td><td>10.10.10.11/24</td><td>DHCP rezervasyonu; SSH 22, RDP 3389; docker0 172.17.0.1/16 kapalı. firewall=0: tap102i0 doğrudan vmbr1'de</td><td>terraform: modules/ubuntu_desktop · ansible: opnsense_dhcp_reservations</td></tr>
         <tr><td>İş istasyonu (Windows)</td><td>—</td><td>—</td><td>192.168.1.24</td><td>Kalıcı route 10.10.0.0/16 → 192.168.1.201; WSL2 arkasında 192.168.80.0/20 NAT</td><td>Elle (route -p); docs/network.md</td></tr>
       </tbody>
     </table>
@@ -785,21 +784,9 @@ td.warn { color: var(--bad); }
   </div>
 </section>
 
-<section aria-labelledby="h-open">
-  <div class="sec-head">
-    <div>
-      <h2 id="h-open">Bekleyen iş</h2>
-      <p>Kodda yapılmış ama canlıya henüz uygulanmamış tek değişiklik. Uygulanınca bu bölüm kalkar.</p>
-    </div>
-  </div>
-  <ul class="issues">
-    <li><span class="tag">terraform</span><div><b>terraform apply: VM 102'de firewall=0 ve VM 101'in silinmesi.</b><p>Proxmox firewall datacenter seviyesinde kapalı, bu yüzden VM 102'deki <code>firewall=1</code> host'ta yalnızca fwbr102i0, fwpr102p0 ve fwln102i0 arayüzlerini oluşturuyor, filtreleme yapmıyor; kodda <code>false</code>. Apply NIC'i yeniden takar, desktop'un ağı birkaç saniye kesilir. Aynı apply repodan çıkarılmış VM 101'i (ubuntu-server, 120 GB disk) ve ubuntu cloud image dosyasını da siler.</p></div></li>
-  </ul>
-</section>
-
 <footer class="foot">
   <p>Kaynak: pve1 (<code>qm config</code>, <code>ip</code>, <code>storage.cfg</code>), OPNsense <code>config.xml</code> ve REST API, desktop (<code>ip</code>, <code>ss</code>, <code>resolvectl</code>), 3 Ekim 2026'da okundu.</p>
-  <p>Tanımlar repoda: <code>terraform/</code> VM'leri ve NIC'leri, <code>ansible/</code> köprüleri, köprülerdeki IPv6 ve misafir yalıtımını, firewall kurallarını, DHCP ve DNS'i tarif ediyor. Kurallar 3 Ekim 2026'da sadeleştirildi ve uygulandı; ardından koşan <code>--check</code> canlıyla kodu birebir buldu (changed=0). Desktop'tan ev ağına, firewall'a, DMZ ve LAB ağ geçitlerine ve internete; iş istasyonundan LAN'a erişim doğrulandı. İş istasyonundan DMZ ve LAB'e erişimin kapandığı da doğrulandı. DMZ'de iki makinenin birbirine ulaşamadığı, firewall'a ise ulaşabildiği vmbr2'ye bağlanan iki geçici test arayüzüyle doğrulandı.</p>
+  <p>Tanımlar repoda: <code>terraform/</code> VM'leri ve NIC'leri, <code>ansible/</code> köprüleri, köprülerdeki IPv6 ve misafir yalıtımını, firewall kurallarını, DHCP ve DNS'i tarif ediyor. Kurallar 3 Ekim 2026'da sadeleştirildi ve uygulandı; ardından koşan <code>--check</code> canlıyla kodu birebir buldu (changed=0). Desktop'tan ev ağına, firewall'a, DMZ ve LAB ağ geçitlerine ve internete; iş istasyonundan LAN'a erişim doğrulandı. İş istasyonundan DMZ ve LAB'e erişimin kapandığı da doğrulandı. DMZ'de iki makinenin birbirine ulaşamadığı, firewall'a ise ulaşabildiği vmbr2'ye bağlanan iki geçici test arayüzüyle doğrulandı. Aynı gün <code>terraform apply</code> VM 101'i (ubuntu-server) ve cloud image'ı sildi, VM 102'de firewall=0 yaptı; ardından <code>terraform plan</code> değişiklik bulmadı.</p>
 </footer>
 
 </div>
@@ -835,3 +822,5 @@ td.warn { color: var(--bad); }
 })();
 </script>
 
+</body>
+</html>
