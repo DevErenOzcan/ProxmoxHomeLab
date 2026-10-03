@@ -23,6 +23,17 @@
     label: "{{ item.name }}"
   notify: network_bridge_reload_now
 
+# The host has no route into the segments, on purpose: ansible runs from the
+# workstation, and nothing on pve1 needs to reach a guest by IP. An old role
+# left "up ip route add 10.10.0.0/16 ..." lines in this file; they landed
+# under the unused nic1 stanza and never ran. Removed 2026-10-03; the task can
+# go once no host carries the block. No reload: nic1 is never brought up.
+- name: network_bridge | Remove the retired lab route block
+  ansible.builtin.blockinfile:
+    path: "{{ network_bridge_interfaces_file }}"
+    marker: "# {mark} ANSIBLE MANAGED ROUTE 10.10.0.0/16"
+    state: absent
+
 # The host has no IPv4 address on these bridges, but the kernel still gives
 # each one an IPv6 link-local address, and sshd, pveproxy and rpcbind listen on
 # it - every guest on the segment reached the host's 22, 8006 and 111 without

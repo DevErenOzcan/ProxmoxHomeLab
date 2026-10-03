@@ -93,13 +93,15 @@ opnsense_rules:
     destination_net: "(self)"
     destination_port: 443
 
-  - description: "Home LAN may reach the lab segments"
+  # Only the LAN: DMZ and LAB machines are reached through a LAN machine, so
+  # nothing on the home network can open a connection into them directly.
+  - description: "Home network may reach the LAN segment"
     interface: "{{ opnsense_if.wan }}"
     sequence: 11
     action: pass
     direction: in
     source_net: HOME_LAN
-    destination_net: LAB_NETS
+    destination_net: "{{ opnsense_segments.lan.cidr }}"
 
   # SSH from the home network. Enabled 2026-09-17 so the firewall can be
   # administered and driven by ansible without the console; it is declared here
@@ -117,68 +119,31 @@ opnsense_rules:
 
   # ---- LAN -----------------------------------------------------------------
   # The trusted segment (decision of 2026-10-03): every LAN machine may reach
-  # the home network, DMZ, LAB and the internet. Traffic to the home network
-  # leaves NATed as 192.168.1.201. Nothing comes back in unasked: DMZ and LAB
-  # block LAB_NETS at their own sequence 30, which covers LAN.
-  #
-  # Sequences 1 and 11 are the OPNsense installer's default LAN rules and
-  # already say "anything"; 10, 40 and 50 below spell out the individual paths
-  # and change nothing while 1 and 11 exist.
-  - description: "Default allow LAN to any rule"
-    interface: "{{ opnsense_if.lan }}"
-    sequence: 1
-    action: pass
-    direction: in
-    ip_protocol: inet
-    source_net: lan
-    destination_net: any
-    log: false
-
-  - description: "Default allow LAN IPv6 to any rule"
-    interface: "{{ opnsense_if.lan }}"
-    sequence: 11
-    action: pass
-    direction: in
-    ip_protocol: inet6
-    source_net: lan
-    destination_net: any
-    log: false
-
-  - description: "LAN may use the gateway for DNS"
-    interface: "{{ opnsense_if.lan }}"
-    sequence: 10
-    action: pass
-    direction: in
-    protocol: UDP
-    source_net: "{{ opnsense_segments.lan.cidr }}"
-    destination_net: "{{ opnsense_segments.lan.gateway }}"
-    destination_port: 53
-
-  - description: "LAN may reach DMZ services"
-    interface: "{{ opnsense_if.lan }}"
-    sequence: 40
-    action: pass
-    direction: in
-    source_net: "{{ opnsense_segments.lan.cidr }}"
-    destination_net: "{{ opnsense_segments.dmz.cidr }}"
-
-  - description: "LAN may reach the internet"
+  # the home network, this firewall, DMZ, LAB and the internet - one rule says
+  # all of it. Traffic to the home network leaves NATed as 192.168.1.201.
+  # Nothing comes back in unasked: DMZ and LAB block LAB_NETS at their own
+  # sequence 30, which covers LAN. IPv4 only; nothing here uses IPv6.
+  # Not logged, as the installer's allow-all it replaced was not: it matches
+  # every LAN connection.
+  - description: "LAN may reach anything"
     interface: "{{ opnsense_if.lan }}"
     sequence: 50
     action: pass
     direction: in
     source_net: "{{ opnsense_segments.lan.cidr }}"
     destination_net: any
+    log: false
 
   # ---- DMZ -----------------------------------------------------------------
   # The segment Cloudflare Tunnel exposes, so the one most likely to be
   # compromised. Internet only.
+  # TCP too: answers that do not fit a UDP datagram are retried over TCP.
   - description: "DMZ may use the gateway for DNS"
     interface: "{{ opnsense_if.dmz }}"
     sequence: 10
     action: pass
     direction: in
-    protocol: UDP
+    protocol: TCP/UDP
     source_net: "{{ opnsense_segments.dmz.cidr }}"
     destination_net: "{{ opnsense_segments.dmz.gateway }}"
     destination_port: 53
@@ -215,7 +180,7 @@ opnsense_rules:
     sequence: 10
     action: pass
     direction: in
-    protocol: UDP
+    protocol: TCP/UDP
     source_net: "{{ opnsense_segments.lab.cidr }}"
     destination_net: "{{ opnsense_segments.lab.gateway }}"
     destination_port: 53
@@ -246,12 +211,19 @@ opnsense_rules:
     source_net: "{{ opnsense_segments.lab.cidr }}"
     destination_net: any
 
-# Rules to delete from the firewall, by description. The two LAN blocks were
-# never in force (sequence 1 matched first) and contradict the LAN policy
-# above; listing them here removes them on the next run.
+# Rules to delete from the firewall, by description (2026-10-03). The LAN's
+# installer defaults and its per-path rules gave way to "LAN may reach
+# anything"; the two LAN blocks never matched; the WAN rule into every
+# segment became "Home network may reach the LAN segment".
 opnsense_unused_rules:
+  - "Default allow LAN to any rule"
+  - "Default allow LAN IPv6 to any rule"
+  - "LAN may use the gateway for DNS"
+  - "LAN may reach DMZ services"
+  - "LAN may reach the internet"
   - "LAN must not reach the home network"
   - "LAN must not reach the lab segment"
+  - "Home LAN may reach the lab segments"
 
 # --- DNS --------------------------------------------------------------------
 # The segments are firewalled off from the home router, so they cannot ask it

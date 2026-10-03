@@ -14,8 +14,8 @@ ansible_managed: "Managed by proxmox-homelab (ansible) - do not edit by hand"
 # --- Reaching it -------------------------------------------------------------
 # Directly: the workstation running ansible carries the route
 # "10.10.0.0/16 via 192.168.1.201" (docs/network.md, "The static route on the
-# home router"). There used to be a ProxyJump through pve1 here, which cannot
-# work while pve1 has no route into the lab of its own (roles/pve_routes).
+# home router"). No ProxyJump through pve1: the host has no route into the
+# lab, by design.
 ansible_ssh_common_args: "-o StrictHostKeyChecking=accept-new"
 
 # --- SSH ---------------------------------------------------------------------

@@ -217,32 +217,30 @@ from `192.168.1.0/24` is ever evaluated and the rules below never match.
 | seq | Action | Source | Destination | Port | Why |
 |---|---|---|---|---|---|
 | 10 | Pass | `HOME_LAN` | this firewall | TCP 443 | Reach this web UI from home |
-| 11 | Pass | `HOME_LAN` | `LAB_NETS` | any | Reach the guests from home |
+| 11 | Pass | `HOME_LAN` | 10.10.10.0/24 | any | Reach the LAN guests from home |
 | 12 | Pass | `HOME_LAN` | this firewall | TCP 22 | SSH to the firewall from home |
 
-Everything else inbound stays blocked by the implicit default. Nothing from the
-internet can reach in at all — the home router forwards no ports.
+Everything else inbound stays blocked by the implicit default — the DMZ and
+LAB included: from home they are reached through a LAN machine, never
+directly. Nothing from the internet can reach in at all — the home router
+forwards no ports.
 
 ### LAN (`vtnet1`)
 
-The trusted segment. Every machine on it may reach the home network, the DMZ,
-the LAB and the internet; traffic to the home network leaves NATed as
-`192.168.1.201`. Together with WAN sequence 11 that makes LAN ↔ home two-way.
-Nothing on the DMZ or LAB can open a connection into the LAN — their own
-sequence 30 blocks `LAB_NETS`, which covers `10.10.10.0/24`.
+The trusted segment. Every machine on it may reach the home network, this
+firewall, the DMZ, the LAB and the internet; traffic to the home network
+leaves NATed as `192.168.1.201`. Together with WAN sequence 11 that makes
+LAN ↔ home two-way. Nothing on the DMZ or LAB can open a connection into the
+LAN — their own sequence 30 blocks `LAB_NETS`, which covers `10.10.10.0/24`.
 
 | seq | Action | Source | Destination | Port | Why |
 |---|---|---|---|---|---|
-| 1 | Pass | LAN net | any | any (IPv4) | Installer default |
-| 10 | Pass | 10.10.10.0/24 | 10.10.10.1 | UDP 53 | DNS on the gateway |
-| 11 | Pass | LAN net | any | any (IPv6) | Installer default |
-| 40 | Pass | 10.10.10.0/24 | 10.10.20.0/24 | any | LAN may use DMZ services |
-| 50 | Pass | 10.10.10.0/24 | any | any | Home network, LAB, internet |
+| 50 | Pass | 10.10.10.0/24 | any | any (IPv4) | Everything; not logged |
 
-Sequences 1 and 11 already say "anything", so 10, 40 and 50 change nothing
-while they exist; they spell out the individual paths. The LAN once had block
-rules at 20 (→ `HOME_LAN`) and 30 (→ LAB) that sat below sequence 1 and never
-matched. They are listed in `opnsense_unused_rules`, so a run removes them.
+One rule on purpose. The installer's default allow-all rules and the per-path
+rules that sat under them (DNS, DMZ, internet, and two blocks that never
+matched) were removed on 2026-10-03 through `opnsense_unused_rules`. Nothing
+on the LAN uses IPv6, so no IPv6 rule is kept.
 
 ### DMZ (`vtnet2`)
 
@@ -251,7 +249,7 @@ be compromised. It may talk to the internet and nothing else.
 
 | seq | Action | Source | Destination | Port | Why |
 |---|---|---|---|---|---|
-| 10 | Pass | 10.10.20.0/24 | 10.10.20.1 | UDP 53 | DNS on the gateway |
+| 10 | Pass | 10.10.20.0/24 | 10.10.20.1 | TCP/UDP 53 | DNS on the gateway; TCP for answers too big for UDP |
 | 20 | **Block** | 10.10.20.0/24 | `HOME_LAN` | any | Isolation |
 | 30 | **Block** | 10.10.20.0/24 | `LAB_NETS` | any | A compromised service cannot pivot into LAN or LAB |
 | 40 | Pass | 10.10.20.0/24 | any | any | Internet - cloudflared dials out on 443 |
@@ -260,7 +258,7 @@ be compromised. It may talk to the internet and nothing else.
 
 | seq | Action | Source | Destination | Port | Why |
 |---|---|---|---|---|---|
-| 10 | Pass | 10.10.30.0/24 | 10.10.30.1 | UDP 53 | DNS on the gateway |
+| 10 | Pass | 10.10.30.0/24 | 10.10.30.1 | TCP/UDP 53 | DNS on the gateway; TCP for answers too big for UDP |
 | 20 | **Block** | 10.10.30.0/24 | `HOME_LAN` | any | Isolation |
 | 30 | **Block** | 10.10.30.0/24 | `LAB_NETS` | any | Isolated from LAN and DMZ too |
 | 40 | Pass | 10.10.30.0/24 | any | any | Internet |

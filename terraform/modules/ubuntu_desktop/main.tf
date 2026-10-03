@@ -15,13 +15,19 @@ terraform {
 # that ansible/roles/gpu_passthrough sets up.
 #
 # Every value below mirrors VM 102 as it runs (checked against
-# /etc/pve/qemu-server/102.conf, 2026-10-03). Three of them look like
-# omissions and are not - the provider reads an ABSENT key back as these
-# values, so setting anything else is a permanent plan diff:
+# /etc/pve/qemu-server/102.conf, 2026-10-03). The provider reads an ABSENT key
+# back as a fixed value, so the code must say exactly that value or every plan
+# shows a diff:
 #
 #   * no memory.floating: 102.conf has no balloon key, which reads back as 0
-#   * no rombar on hostpci: an absent rombar reads back as true
+#   * rombar = true on hostpci: an absent rombar reads back as true, and a null
+#     here is a diff against it (seen in the first real plan, 2026-10-03)
 #   * no usb3 on usb: an absent usb3 reads back as false
+#
+# USB is ignored after creation: bpg/proxmox 0.113.1 reads only usb0-usb3
+# (maxResourceVirtualEnvironmentVMHostUSBDevices = 4), while this VM has eight
+# ports. The list still creates all eight; changing them later is a GUI or
+# `qm set` job.
 #
 # The image carries no cloud-init drive, so the MAC is pinned instead and
 # OPNsense holds a DHCP reservation for 10.10.10.11 against it.
@@ -97,7 +103,9 @@ resource "proxmox_virtual_environment_vm" "ubuntu_desktop" {
     bridge      = var.network_bridge
     model       = "virtio"
     mac_address = var.mac_address
-    firewall    = true
+    # The Proxmox firewall is off at datacenter level, so true would only add
+    # the fwbr/fwpr/fwln detour on the host without filtering anything.
+    firewall = false
   }
 
   dynamic "hostpci" {
@@ -107,6 +115,7 @@ resource "proxmox_virtual_environment_vm" "ubuntu_desktop" {
       id     = hostpci.value.device
       pcie   = hostpci.value.pcie ? true : null
       xvga   = hostpci.value.xvga ? true : null
+      rombar = true
     }
   }
 
@@ -122,6 +131,9 @@ resource "proxmox_virtual_environment_vm" "ubuntu_desktop" {
   }
 
   lifecycle {
+    # See the header: the provider cannot see usb4 and up.
+    ignore_changes = [usb]
+
     precondition {
       condition     = length([for d in var.hostpci_devices : d if d.xvga]) <= 1
       error_message = "Only one passed-through device may be the primary display (xvga = true)."

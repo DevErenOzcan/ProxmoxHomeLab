@@ -269,16 +269,6 @@
           loop_control:
             label: "{{ item.name }}"
 
-        - name: opnsense_config | Remove unused firewall rules
-          ansibleguy.opnsense.rule:
-            description: "{{ item }}"
-            match_fields: ['description']
-            state: absent
-            <<: *opn
-          loop: "{{ opnsense_unused_rules | default([]) }}"
-          loop_control:
-            label: "{{ item }}"
-
         - name: opnsense_config | Firewall rules
           ansibleguy.opnsense.rule:
             action: "{{ item.action | default('pass') }}"
@@ -300,6 +290,18 @@
           loop: "{{ opnsense_rules }}"
           loop_control:
             label: "{{ item.interface }} {{ item.sequence }} {{ item.action }} - {{ item.description }}"
+
+        # After the rules above, not before: a renamed rule is created first
+        # and its old self removed second, so traffic never meets a gap.
+        - name: opnsense_config | Remove unused firewall rules
+          ansibleguy.opnsense.rule:
+            description: "{{ item }}"
+            match_fields: ['description']
+            state: absent
+            <<: *opn
+          loop: "{{ opnsense_unused_rules | default([]) }}"
+          loop_control:
+            label: "{{ item }}"
 
         - name: opnsense_config | Unbound forwarders
           ansibleguy.opnsense.unbound_forward:
