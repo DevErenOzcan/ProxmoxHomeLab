@@ -1,69 +1,64 @@
 ---
-# The data disk: the host's nvme0n1, passed through as scsi1 (sdb in the
-# guest), carrying a GPT and one ext4 partition.
+# The persistent data disk: a volume Terraform carves out of the host's
+# "vmdata" storage and attaches as scsi1. It is owned by a holder VM, not by
+# this one, so it survives this VM being destroyed and rebuilt. What has to
+# survive lives on it (desktop_data_volume_binds).
 #
-# Found by filesystem UUID, never by sdX, and never formatted here: blkid on
-# the bare device reports no filesystem for a partitioned disk, so "format when
-# empty" logic would aim mkfs at the whole device, partition table and all.
+# Found by its stable SCSI path and its filesystem label. Formatted only when
+# the disk is completely blank - no partition table, no filesystem, nothing
+# blkid recognises - so a disk with anything on it is never touched.
 
-- name: desktop_data_volume | A filesystem UUID is configured
-  ansible.builtin.assert:
-    that: desktop_data_volume_uuid | length > 0
-    fail_msg: "desktop_data_volume_uuid is empty - set it to the data filesystem's UUID (blkid)."
-    quiet: true
-
-- name: desktop_data_volume | Is the filesystem attached
+- name: desktop_data_volume | Is the data disk attached
   ansible.builtin.stat:
-    path: "/dev/disk/by-uuid/{{ desktop_data_volume_uuid }}"
+    path: "{{ desktop_data_volume_device }}"
   register: desktop_data_volume_dev
 
-- name: desktop_data_volume | The filesystem is missing
+- name: desktop_data_volume | The data disk is missing
   ansible.builtin.fail:
     msg: >-
-      No filesystem with UUID {{ desktop_data_volume_uuid }}. It lives on the
-      host's nvme0n1, passed through as scsi1 of VM 102: check that the disk
-      is attached, then run blkid in the guest. Nothing was changed.
+      {{ desktop_data_volume_device }} does not exist. The disk comes from
+      data_disks in terraform/environments/production; check that VM 102 has
+      it as scsi1. Nothing was changed.
   when: not desktop_data_volume_dev.stat.exists
+
+- name: desktop_data_volume | Read what is on the disk
+  ansible.builtin.command: "blkid -p -o export {{ desktop_data_volume_device }}"
+  register: desktop_data_volume_probe
+  changed_when: false
+  failed_when: desktop_data_volume_probe.rc not in [0, 2]
+  check_mode: false
+
+- name: desktop_data_volume | The disk is blank or carries this volume
+  ansible.builtin.assert:
+    that: >-
+      desktop_data_volume_probe.rc == 2
+      or ('LABEL=' ~ desktop_data_volume_label) in desktop_data_volume_probe.stdout_lines
+    quiet: true
+    fail_msg: >-
+      {{ desktop_data_volume_device }} carries something other than the
+      "{{ desktop_data_volume_label }}" filesystem:
+      {{ desktop_data_volume_probe.stdout_lines | join(' ') }}. This role only
+      formats a blank disk. Nothing was changed.
+
+- name: desktop_data_volume | Create the filesystem on the blank disk
+  community.general.filesystem:
+    dev: "{{ desktop_data_volume_device }}"
+    fstype: "{{ desktop_data_volume_fstype }}"
+    opts: "-L {{ desktop_data_volume_label }}"
+  when: desktop_data_volume_probe.rc == 2
 
 # nofail: a missing data disk must not drop the desktop into emergency mode.
 - name: desktop_data_volume | Mount it and keep it in fstab
   ansible.posix.mount:
     path: "{{ desktop_data_volume_mountpoint }}"
-    src: "UUID={{ desktop_data_volume_uuid }}"
+    src: "LABEL={{ desktop_data_volume_label }}"
     fstype: "{{ desktop_data_volume_fstype }}"
     opts: defaults,nofail
     state: mounted
 
-- name: desktop_data_volume | The volume belongs to the desktop user
-  ansible.builtin.file:
-    path: "{{ desktop_data_volume_mountpoint }}"
-    state: directory
-    owner: "{{ desktop_data_volume_owner }}"
-    group: "{{ desktop_data_volume_owner }}"
-    mode: "0755"
-
-- name: desktop_data_volume | Directories on the volume
-  ansible.builtin.file:
-    path: "{{ desktop_data_volume_mountpoint }}/{{ item.name }}"
-    state: directory
-    owner: "{{ desktop_data_volume_owner }}"
-    group: "{{ desktop_data_volume_owner }}"
-    mode: "0755"
-  loop: "{{ desktop_data_volume_links }}"
+- name: desktop_data_volume | Directories that live on the volume
+  ansible.builtin.include_tasks: bind.yml
+  loop: "{{ desktop_data_volume_binds }}"
   loop_control:
-    label: "{{ item.name }}"
-
-# Not forced: if the link path already exists as a real directory, this
-# fails rather than replacing it. Skipped in check mode, where the volume is
-# not really mounted and the link target cannot exist yet.
-- name: desktop_data_volume | Links from the home directory
-  ansible.builtin.file:
-    src: "{{ desktop_data_volume_mountpoint }}/{{ item.name }}"
-    dest: "{{ item.link }}"
-    state: link
-    owner: "{{ desktop_data_volume_owner }}"
-    group: "{{ desktop_data_volume_owner }}"
-  loop: "{{ desktop_data_volume_links }}"
-  loop_control:
-    label: "{{ item.link }}"
-  when: not ansible_check_mode
+    loop_var: bind
+    label: "{{ bind.path }}"

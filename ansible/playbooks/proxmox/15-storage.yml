@@ -1,6 +1,6 @@
 ---
-# Storage that differs from the installer's: the content types of "local".
-# nvme0n1 is deliberately absent - it belongs to VM 102.
+# Storage that differs from the installer's: the content types of "local", and
+# the second NVMe as "vmdata", thick-LVM storage for the VMs' data disks.
 - name: Storage
   hosts: proxmox_nodes
   become: true

@@ -62,27 +62,19 @@ variable "disk_size" {
   default     = 40
 }
 
-variable "data_volume_id" {
+variable "data_disk" {
   description = <<-EOT
-    The data disk attached as scsi1. An absolute path passes a whole host
-    block device through - /dev/nvme0n1, the Intel 670p 512 GB, is what runs;
-    the guest sees it as /dev/sdb and keeps an ext4 partition on it. Anything
-    else is a datastore volume ID (e.g. local-lvm:vm-999-disk-1). Empty means
-    no data disk.
+    The persistent data disk attached as scsi1: the `disk` output of a
+    modules/data_disk holder, which owns it, so this VM can be destroyed and
+    rebuilt without losing it. null: no data disk.
   EOT
-  type        = string
-  default     = "/dev/nvme0n1"
-}
-
-variable "data_disk_size" {
-  description = <<-EOT
-    Size of the data disk in GB, as the provider reports it: whole GiB,
-    rounded down. nvme0n1 is 500107608 KiB = 476.9 GiB, so 476. Anything else
-    is a permanent diff on a passthrough disk, whose size Proxmox cannot
-    change.
-  EOT
-  type        = number
-  default     = 476
+  type = object({
+    datastore_id      = string
+    path_in_datastore = string
+    file_format       = string
+    size              = number
+  })
+  default = null
 }
 
 variable "cpu_type" {

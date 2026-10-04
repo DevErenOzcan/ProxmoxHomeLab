@@ -6,3 +6,11 @@ pve_storage_local_content:
   - iso
   - vztmpl
   - backup
+
+# Whole disks turned into thick-LVM storage for VM disks: each entry becomes a
+# volume group and a Proxmox "lvm" storage of the same name, with saferemove on
+# (a deleted VM disk is zeroed before its space can be handed to another VM).
+# The disk must be blank or already that volume group's - see tasks/main.yml.
+#   - id: vmdata                          # storage ID and volume group name
+#     device: /dev/disk/by-id/nvme-...    # a whole disk, by a stable name
+pve_storage_lvm: []

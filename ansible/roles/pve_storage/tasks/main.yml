@@ -1,15 +1,10 @@
 ---
-# Storage configuration that differs from what the installer left.
-#
-# This role used to reclaim the first install's leftover volume group on
-# nvme0n1 as a thin pool called "nvme2". There is no nvme2 today, and there
-# cannot be one: nvme0n1 was repartitioned and is passed whole to VM 102 as its
-# data disk. All that is left for the host to own is which content types
-# "local" accepts.
+# Storage that differs from what the installer left: the content types of
+# "local", and whole disks turned into thick-LVM storage for VM disks.
 
-- name: pve_storage | Read the local storage definition
-  ansible.builtin.command: "pvesh get /storage/{{ pve_storage_local_id }} --output-format json"
-  register: pve_storage_local
+- name: pve_storage | Read the storage definitions
+  ansible.builtin.command: pvesh get /storage --output-format json
+  register: pve_storage_defs
   changed_when: false
   check_mode: false
 
@@ -17,9 +12,75 @@
 # comparison is between sets.
 - name: pve_storage | Set the content types of the local storage
   vars:
-    _pve_storage_content_now: "{{ (pve_storage_local.stdout | from_json).content.split(',') | sort }}"
+    _local: "{{ pve_storage_defs.stdout | from_json | selectattr('storage', 'equalto', pve_storage_local_id) | first }}"
   ansible.builtin.command: >-
     pvesm set {{ pve_storage_local_id }}
     --content {{ pve_storage_local_content | join(',') }}
   changed_when: true
-  when: _pve_storage_content_now != (pve_storage_local_content | sort)
+  when: (_local.content.split(',') | sort) != (pve_storage_local_content | sort)
+
+# ---- whole disks as thick-LVM storage -------------------------------------
+# A disk is used only when it is blank - no partition table, no filesystem,
+# nothing blkid recognises - or already a physical volume. Anything else stops
+# the run: this role never wipes a disk. That is a deliberate, manual step
+# (proxmox-bootstrap.md, "A data disk for the VMs").
+- name: pve_storage | Read what is on the storage disks
+  ansible.builtin.command: "blkid -p -o export {{ item.device }}"
+  loop: "{{ pve_storage_lvm }}"
+  loop_control:
+    label: "{{ item.id }}"
+  register: pve_storage_lvm_probe
+  changed_when: false
+  failed_when: pve_storage_lvm_probe.rc not in [0, 2]
+  check_mode: false
+
+- name: pve_storage | The storage disks are blank or already physical volumes
+  ansible.builtin.assert:
+    that: item.rc == 2 or 'TYPE=LVM2_member' in item.stdout_lines
+    quiet: true
+    fail_msg: >-
+      {{ item.item.device }} is not blank: {{ item.stdout_lines | join(' ') }}.
+      This role never wipes a disk. If what is on it can go, wipe it by hand
+      (proxmox-bootstrap.md, "A data disk for the VMs") and run again. Nothing
+      has been changed.
+  loop: "{{ pve_storage_lvm_probe.results }}"
+  loop_control:
+    label: "{{ item.item.id }}"
+
+- name: pve_storage | Volume groups on the storage disks
+  community.general.lvg:
+    vg: "{{ item.id }}"
+    pvs: "{{ item.device }}"
+    state: present
+  loop: "{{ pve_storage_lvm }}"
+  loop_control:
+    label: "{{ item.id }}"
+
+- name: pve_storage | Register the volume groups as thick-LVM storage
+  ansible.builtin.command: >-
+    pvesm add lvm {{ item.id }} --vgname {{ item.id }}
+    --content images --saferemove 1
+  loop: "{{ pve_storage_lvm }}"
+  loop_control:
+    label: "{{ item.id }}"
+  changed_when: true
+  when: item.id not in (pve_storage_defs.stdout | from_json | map(attribute='storage'))
+
+- name: pve_storage | Registered LVM storage matches
+  vars:
+    _def: "{{ pve_storage_defs.stdout | from_json | selectattr('storage', 'equalto', item.id) | first }}"
+  ansible.builtin.assert:
+    that:
+      - _def.type == 'lvm'
+      - _def.vgname == item.id
+      - _def.content == 'images'
+      - (_def.saferemove | default(0) | int) == 1
+    quiet: true
+    fail_msg: >-
+      Storage {{ item.id }} exists but is not a thick-LVM storage on volume
+      group {{ item.id }} for disk images with saferemove on: {{ _def }}.
+      Fix it in Datacenter -> Storage, or here.
+  loop: "{{ pve_storage_lvm }}"
+  loop_control:
+    label: "{{ item.id }}"
+  when: item.id in (pve_storage_defs.stdout | from_json | map(attribute='storage'))

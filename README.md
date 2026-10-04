@@ -9,7 +9,8 @@ and the home network.
 |---|---|---|
 | `pve1`: Proxmox VE 9.2, node name `proxmox`, Ryzen 7 5800H laptop | 192.168.1.200 | `ansible/playbooks/proxmox` |
 | VM 100 `opnsense-fw`: OPNsense 26.7 | 192.168.1.201 (WAN); 10.10.10.1, 10.10.20.1, 10.10.30.1 | `terraform/` + `ansible/playbooks/opnsense` |
-| VM 102 `ubuntu-desktop`: Ubuntu 24.04 desktop, both GPUs passed through | 10.10.10.11 | `terraform/` + `ansible/playbooks/ubuntu_desktop` |
+| VM 102 `ubuntu-desktop`: Ubuntu 24.04 desktop, both GPUs passed through, `/home` on a 200 GB persistent disk | 10.10.10.11 | `terraform/` + `ansible/playbooks/ubuntu_desktop` |
+| VM 9102 `data-102`: only holds VM 102's data disk, never started | - | `terraform/` (`data_disks`) |
 
 The firewall routes three internal segments: **LAN** (trusted, two-way with the
 home network), **DMZ** (internet-facing services, internet only) and **LAB**
@@ -70,7 +71,8 @@ terraform/
   environments/production/     the live environment: VM 100 and VM 102
   modules/
     opnsense/                  four NICs in a fixed order, WAN can start unplugged
-    ubuntu_desktop/            q35 + OVMF, GPUs, USB ports and a whole NVMe passed through
+    ubuntu_desktop/            q35 + OVMF, GPUs and USB ports passed through
+    data_disk/                 a persistent data disk, owned by a never-started holder VM
 ```
 
 ---
@@ -159,8 +161,8 @@ Drop `--check --diff` to apply. Narrow a run with `--tags`:
 
 | Playbook | Tags |
 |---|---|
-| `proxmox/site.yml` | `base` repositories and packages · `storage` content types of "local" · `network` bridges, their IPv6, guest isolation · `gpu` IOMMU, vfio-pci, vendor-reset · `laptop` lid switch |
-| `ubuntu_desktop/site.yml` | `base` SSH key, APT repositories, packages, snaps, timezone, PRIME · `gnome` dconf defaults · `data` the data volume |
+| `proxmox/site.yml` | `base` repositories and packages · `storage` content types of "local", the `vmdata` storage · `network` bridges, their IPv6, guest isolation · `gpu` IOMMU, vfio-pci, vendor-reset · `laptop` lid switch |
+| `ubuntu_desktop/site.yml` | `base` SSH key, APT repositories, packages, snaps, timezone, PRIME · `gnome` dconf defaults · `data` the data disk and `/home` on it |
 
 Terraform, from `terraform/environments/production/`:
 
@@ -189,6 +191,7 @@ Before a real run, know what it does:
 | The desktop: packages, snaps, GNOME, data volume | `ansible/inventories/production/group_vars/ubuntu_desktop.yml` |
 | The firewall: aliases, rules, DNS, DHCP | `ansible/roles/opnsense_config/defaults/main.yml` |
 | The VMs: sizes, NICs, passthrough devices | `terraform/modules/<vm>/variables.tf`; addresses and segments in `terraform/environments/production/locals.tf` |
+| A VM's persistent data disk | `data_disks` in `terraform/environments/production/variables.tf`: VM ID => size in GB, then pass `module.data_disk["<id>"].disk` to the VM |
 
 Turn a host role off with `gpu_passthrough_enabled`, `vendor_reset_enabled`,
 `network_bridge_enabled` or `laptop_lid_enabled: false` in
@@ -251,3 +254,10 @@ Turn a host role off with `gpu_passthrough_enabled`, `vendor_reset_enabled`,
   converged host is a no-op.
 - **The host has no address on the guest bridges, IPv6 included,** and DMZ/LAB
   guests cannot reach each other (`network_bridge`; docs/network.md).
+- **Data disks outlive their VMs.** The second NVMe is `vmdata`, thick-LVM
+  storage (`pve_storage`). Each disk on it is owned by a holder VM (9000 + the
+  VM's ID) that is never started and carries Proxmox's protection flag, and is
+  attached to its VM as `scsi1`. Proxmox frees only a VM's own disks when the
+  VM is destroyed, so a VM can be rebuilt without losing its data
+  (ubuntu-desktop-bootstrap.md, "Rebuilding the VM"). Each VM sees only its own
+  disk, and `saferemove` zeroes a deleted one before its space is reused.

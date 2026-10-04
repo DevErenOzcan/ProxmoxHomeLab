@@ -374,7 +374,7 @@ td.warn { color: var(--bad); }
         <text class="tms mu" x="84" y="830">BC:24:11:B8:0E:F8</text>
         <text class="ts" x="84" y="847">açık: SSH 22 · RDP 3389</text>
         <text class="ts mu" x="84" y="863">iGPU + RTX 3050 Ti · 8 USB</text>
-        <text class="ts mu" x="84" y="879">nvme0n1 passthrough</text>
+        <text class="ts mu" x="84" y="879">/home: 200 GB kalıcı disk</text>
 
         <text class="tt" x="444" y="797">Docker makineleri · planlı</text>
         <text class="ts" x="444" y="814">her biri kendi cloudflared'iyle</text>
@@ -786,7 +786,7 @@ td.warn { color: var(--bad); }
 
 <footer class="foot">
   <p>Kaynak: pve1 (<code>qm config</code>, <code>ip</code>, <code>storage.cfg</code>), OPNsense <code>config.xml</code> ve REST API, desktop (<code>ip</code>, <code>ss</code>, <code>resolvectl</code>), 3 Ekim 2026'da okundu.</p>
-  <p>Tanımlar repoda: <code>terraform/</code> VM'leri ve NIC'leri, <code>ansible/</code> köprüleri, köprülerdeki IPv6 ve misafir yalıtımını, firewall kurallarını, DHCP ve DNS'i tarif ediyor. Kurallar 3 Ekim 2026'da sadeleştirildi ve uygulandı; ardından koşan <code>--check</code> canlıyla kodu birebir buldu (changed=0). Desktop'tan ev ağına, firewall'a, DMZ ve LAB ağ geçitlerine ve internete; iş istasyonundan LAN'a erişim doğrulandı. İş istasyonundan DMZ ve LAB'e erişimin kapandığı da doğrulandı. DMZ'de iki makinenin birbirine ulaşamadığı, firewall'a ise ulaşabildiği vmbr2'ye bağlanan iki geçici test arayüzüyle doğrulandı. Aynı gün <code>terraform apply</code> VM 101'i (ubuntu-server) ve cloud image'ı sildi, VM 102'de firewall=0 yaptı; ardından <code>terraform plan</code> değişiklik bulmadı.</p>
+  <p>Tanımlar repoda: <code>terraform/</code> VM'leri ve NIC'leri, <code>ansible/</code> köprüleri, köprülerdeki IPv6 ve misafir yalıtımını, firewall kurallarını, DHCP ve DNS'i tarif ediyor. Kurallar 3 Ekim 2026'da sadeleştirildi ve uygulandı; ardından koşan <code>--check</code> canlıyla kodu birebir buldu (changed=0). Desktop'tan ev ağına, firewall'a, DMZ ve LAB ağ geçitlerine ve internete; iş istasyonundan LAN'a erişim doğrulandı. İş istasyonundan DMZ ve LAB'e erişimin kapandığı da doğrulandı. DMZ'de iki makinenin birbirine ulaşamadığı, firewall'a ise ulaşabildiği vmbr2'ye bağlanan iki geçici test arayüzüyle doğrulandı. Aynı gün <code>terraform apply</code> VM 101'i (ubuntu-server) ve cloud image'ı sildi, VM 102'de firewall=0 yaptı; ardından <code>terraform plan</code> değişiklik bulmadı. 4 Ekim 2026'da ikinci NVMe <code>vmdata</code> (thick LVM) depolamasına dönüştürüldü: VM 102'nin <code>/home</code>'u, VM 9102'ye (<code>data-102</code>, hiç çalışmayan holder) ait 200 GB'lık diskte duruyor; VM 102 yeniden kurulsa da bu disk silinmez.</p>
 </footer>
 
 </div>

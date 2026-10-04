@@ -1,9 +1,14 @@
 ---
-# Values live in inventories/production/group_vars/ubuntu_desktop.yml.
-desktop_data_volume_uuid: ""            # filesystem UUID, as blkid prints it
+# The persistent data disk Terraform attaches as scsi1 (data_disks in
+# terraform/environments/production). Values live in
+# inventories/production/group_vars/ubuntu_desktop.yml.
+desktop_data_volume_device: /dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1
+desktop_data_volume_label: desktop-data
 desktop_data_volume_fstype: ext4
 desktop_data_volume_mountpoint: /mnt/data
-desktop_data_volume_owner: ubuntu
-# Directories on the volume, each linked into the home directory:
-#   - { name: Projects, link: /home/ubuntu/Projects }
-desktop_data_volume_links: []
+# Directories that live on the volume, bind-mounted over their usual place:
+#   - name: home                          directory on the volume
+#     path: /home                         where it appears
+#     stop: [display-manager.service]     units stopped while it is bound
+#     start: [display-manager.service]    units started afterwards (default: stop)
+desktop_data_volume_binds: []

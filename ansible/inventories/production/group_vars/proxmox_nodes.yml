@@ -9,14 +9,17 @@
 # Hardware: AMD Ryzen 7 5800H laptop, one wired NIC (nic0), two NVMe disks.
 
 # --- Storage -----------------------------------------------------------------
-# Proxmox owns only one of the two disks:
+#   Samsung 512 GB     the installer's LVM: "local" (dir) and "local-lvm"
+#                      (thin pool "data" in VG "pve") - OS disks and images
+#   Intel 670p 512 GB  "vmdata": thick LVM for the VMs' persistent data disks.
+#                      Terraform carves one disk per VM out of it
+#                      (data_disks in terraform/environments/production).
 #
-#   nvme1n1  Samsung 512 GB     the installer's LVM: "local" (dir) and
-#                               "local-lvm" (thin pool "data" in VG "pve")
-#   nvme0n1  Intel 670p 512 GB  NOT host storage. Passed whole to VM 102 as its
-#                               data disk (terraform/modules/ubuntu_desktop);
-#                               never add it to storage.cfg or touch it here.
-#
+# By /dev/disk/by-id, never nvme0n1/nvme1n1: those names can swap between boots.
+pve_storage_lvm:
+  - id: vmdata
+    device: /dev/disk/by-id/nvme-INTEL_SSDPEKNW512GZL_PHKA215401EP512A
+
 # "import" is added to the installer's content types so Terraform can download
 # disk images (proxmox_download_file with content_type = "import").
 pve_storage_local_content:

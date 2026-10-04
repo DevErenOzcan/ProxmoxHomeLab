@@ -72,10 +72,24 @@ variable "create_desktop" {
   type        = bool
   description = <<-EOT
     Create the GPU-passthrough desktop workstation (VM 102). Its OS disk lives
-    on desktop_datastore; its data disk is the whole of the host's nvme0n1,
-    passed through - see modules/ubuntu_desktop.
+    on desktop_datastore; its persistent data disk is data_disks["102"].
   EOT
   default     = true
+}
+
+variable "data_disks" {
+  type        = map(number)
+  description = <<-EOT
+    Persistent data disks on the "vmdata" storage (the host's second NVMe,
+    thick LVM): VM ID => size in GB. Each one is owned by a holder VM with ID
+    9000 + the VM's ID (modules/data_disk), so the VM itself can be destroyed
+    and rebuilt without losing it, and only that VM attaches it. To give a VM
+    a disk, add a line here and pass module.data_disk["<id>"].disk to the VM.
+    Sizes are reserved in full and must not change afterwards.
+  EOT
+  default = {
+    "102" = 200 # ubuntu-desktop: /home
+  }
 }
 
 variable "desktop_datastore" {

@@ -125,12 +125,17 @@ desktop_gnome_settings:
     tiling-popup-all-workspace: "true"
 
 # --- Data volume -------------------------------------------------------------
-# The ext4 partition on the passed-through nvme0n1 (sdb1 in the guest),
-# created with gparted on 2026-10-03. As of that day it is empty and NOT yet
-# mounted; the first run of this playbook mounts it and adds it to fstab.
-desktop_data_volume_uuid: 3585be95-8295-4fca-8577-afa62a25fd32
-desktop_data_volume_mountpoint: /mnt/data
-desktop_data_volume_owner: ubuntu
-desktop_data_volume_links:
-  - name: Projects
-    link: /home/ubuntu/Projects
+# The persistent 200 GB disk (data_disks in terraform/environments/production,
+# on the host's "vmdata" storage), mounted at /mnt/data. /home lives on it, so
+# settings, browser profiles, ~/snap and anything installed into the home
+# directory survive a rebuilt VM. Apt packages, snaps and repositories do not
+# need to: this file reinstalls them.
+#
+# Binding /home stops the graphical session and the user's own services (both
+# keep files open there) and starts the display manager again afterwards; the
+# SSH session ansible runs in is not affected.
+desktop_data_volume_binds:
+  - name: home
+    path: /home
+    stop: [display-manager.service, user@1000.service]
+    start: [display-manager.service]

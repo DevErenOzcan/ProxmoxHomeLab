@@ -75,19 +75,19 @@ resource "proxmox_virtual_environment_vm" "ubuntu_desktop" {
     discard      = "on"
   }
 
-  # The data disk. An absolute path is a whole host block device passed
-  # through (live: /dev/nvme0n1); anything else is a volume ID on a datastore.
-  # For a passthrough disk the provider reports no file_format, so setting one
-  # is a permanent diff - it is left null there.
+  # The persistent data disk, owned by a modules/data_disk holder rather than
+  # by this VM: destroying and rebuilding this VM leaves it, and its data, in
+  # place. /home lives on it (ansible/roles/desktop_data_volume).
   dynamic "disk" {
-    for_each = var.data_volume_id != "" ? [var.data_volume_id] : []
+    for_each = var.data_disk == null ? [] : [var.data_disk]
     content {
-      datastore_id      = startswith(disk.value, "/") ? "" : var.datastore_id
-      path_in_datastore = startswith(disk.value, "/") ? disk.value : null
-      file_id           = startswith(disk.value, "/") ? null : disk.value
+      datastore_id      = disk.value.datastore_id
+      path_in_datastore = disk.value.path_in_datastore
+      file_format       = disk.value.file_format
+      size              = disk.value.size
       interface         = "scsi1"
-      size              = var.data_disk_size
-      file_format       = startswith(disk.value, "/") ? null : "raw"
+      iothread          = true
+      discard           = "on"
     }
   }
 
