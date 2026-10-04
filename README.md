@@ -133,7 +133,7 @@ route -p add 10.10.0.0 mask 255.255.0.0 192.168.1.201
 
 | File | Holds | Start from |
 |---|---|---|
-| `.env` | `OPNSENSE_API_KEY`, `OPNSENSE_API_SECRET`, one `CLOUDFLARE_TUNNEL_TOKEN_<HOST>` per Docker host | `.env.example` |
+| `.env` | `OPNSENSE_API_KEY`, `OPNSENSE_API_SECRET`, one `CLOUDFLARE_TUNNEL_TOKEN_<HOST>` per Docker host, the Docker projects' secrets (`KEYCLOAK_*`) | `.env.example` |
 | `terraform/environments/production/secret.tfvars` | `proxmox_password` (root@pam) | `secret.tfvars.example` |
 
 Nothing loads `.env` by itself: the command lines below pass the values a
@@ -168,7 +168,7 @@ Always look before you apply. From `ansible/`, with the venv active:
 ANSIBLE_CONFIG=ansible.cfg ansible-playbook playbooks/proxmox/site.yml --check --diff
 ANSIBLE_CONFIG=ansible.cfg ansible-playbook playbooks/ubuntu_desktop/site.yml --check --diff
 env $(grep '^OPNSENSE_API_' ../.env) ANSIBLE_CONFIG=ansible.cfg ansible-playbook playbooks/opnsense/site.yml --check --diff
-env $(grep '^CLOUDFLARE_TUNNEL_TOKEN_' ../.env) ANSIBLE_CONFIG=ansible.cfg ansible-playbook playbooks/docker_hosts/site.yml --check --diff
+env $(grep -E '^(CLOUDFLARE_TUNNEL_TOKEN_|KEYCLOAK_)' ../.env) ANSIBLE_CONFIG=ansible.cfg ansible-playbook playbooks/docker_hosts/site.yml --check --diff
 ```
 
 Drop `--check --diff` to apply. Narrow a run with `--tags`:

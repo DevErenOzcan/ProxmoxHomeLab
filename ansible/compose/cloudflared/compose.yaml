@@ -2,7 +2,7 @@
 # dials out to Cloudflare on 443 (the DMZ may reach the internet and nothing
 # else), so nothing on this machine listens for the internet: a public
 # hostname is set on the tunnel in the Cloudflare dashboard and points at a
-# container on the "edge" network by name, e.g. http://whoami:80.
+# container on the "edge" network by name, e.g. http://keycloak:8080.
 #
 # The "edge" network is created here, so this project comes first; every
 # project that publishes something joins it as external.

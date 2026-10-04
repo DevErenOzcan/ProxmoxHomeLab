@@ -91,20 +91,33 @@ In the Cloudflare dashboard, under Zero Trust → Networks → Tunnels:
    The name is `CLOUDFLARE_TUNNEL_TOKEN_` plus the inventory name in capitals,
    `-` as `_`; every Docker host has its own tunnel and its own token.
 3. Give the tunnel a public hostname (newer dashboards call it a published
-   application route): a subdomain of your domain, say `whoami`, with service
-   type **HTTP** and URL `whoami:80`. Cloudflare creates the DNS record itself.
+   application route) for each service: Keycloak's is subdomain
+   `auth-librenfra`, no path, service type **HTTP**, URL `keycloak:8080` - the
+   compose service name and the port inside the container, never `localhost`,
+   which is `cloudflared`'s own container. Cloudflare creates the DNS record
+   itself. Keep subdomains **one level deep**: the free certificate covers
+   `*.deverenozcan.com`, so `auth.librenfra.deverenozcan.com` fails the TLS
+   handshake.
 
-The token is the tunnel's only credential. It never enters the repository; the
-playbook writes it to `/mnt/data/compose/cloudflared/.env` on the VM, readable
-by root only.
+Keycloak's two passwords go into `.env` as well. Random ones, from the repo
+root:
+
+```bash
+printf 'KEYCLOAK_DB_PASSWORD=%s\nKEYCLOAK_ADMIN_PASSWORD=%s\n' "$(openssl rand -hex 24)" "$(openssl rand -hex 24)" >> .env
+```
+
+`KEYCLOAK_ADMIN_PASSWORD` is the first login (user `admin`); see step 5.
+
+None of these enters the repository; the playbook writes each to its
+project's `.env` under `/mnt/data/compose/` on the VM, readable by root only.
 
 ## 4. Apply the configuration
 
 From `ansible/`, with the venv active:
 
 ```bash
-env $(grep '^CLOUDFLARE_TUNNEL_TOKEN_' ../.env) ANSIBLE_CONFIG=ansible.cfg ansible-playbook playbooks/docker_hosts/site.yml --check --diff
-env $(grep '^CLOUDFLARE_TUNNEL_TOKEN_' ../.env) ANSIBLE_CONFIG=ansible.cfg ansible-playbook playbooks/docker_hosts/site.yml
+env $(grep -E '^(CLOUDFLARE_TUNNEL_TOKEN_|KEYCLOAK_)' ../.env) ANSIBLE_CONFIG=ansible.cfg ansible-playbook playbooks/docker_hosts/site.yml --check --diff
+env $(grep -E '^(CLOUDFLARE_TUNNEL_TOKEN_|KEYCLOAK_)' ../.env) ANSIBLE_CONFIG=ansible.cfg ansible-playbook playbooks/docker_hosts/site.yml
 ```
 
 On a VM without Docker the dry run stops checking after Docker's repository
@@ -122,32 +135,43 @@ and says so: nothing it would install exists yet. The real run:
    `docker` group.
 4. Copies each project in `docker_host_projects` from `ansible/compose/<name>/`
    to `/mnt/data/compose/<name>/`, writes its `.env`, and brings it up:
-   `cloudflared` first, which creates the `edge` network, then `whoami`.
+   `cloudflared` first, which creates the `edge` network, then `keycloak`
+   (Keycloak and its PostgreSQL).
 
 Everything it does is listed in
 `ansible/inventories/production/group_vars/docker_hosts.yml`.
 
 ## 5. Check it
 
-- The tunnel shows **HEALTHY** in the dashboard, and
-  `https://whoami.<your domain>` answers with the request it received.
-- `ssh ubuntu@10.10.20.10 docker ps` lists `cloudflared` and `whoami`.
+- The tunnel shows **HEALTHY** in the dashboard.
+- `ssh ubuntu@10.10.20.10 docker ps` lists `cloudflared`, `keycloak` and
+  `postgres`. Keycloak needs about a minute on its first start;
+  `sudo docker logs -f keycloak-keycloak-1` says when it is listening.
+- `https://auth-librenfra.deverenozcan.com` shows Keycloak's sign-in page. Sign
+  in to the admin console as `admin` with `KEYCLOAK_ADMIN_PASSWORD`, create a
+  permanent admin user in the `master` realm, sign in as that user and delete
+  `admin`: Keycloak marks the bootstrap account as temporary.
 - The DMZ is contained. On the VM, `curl -s https://ifconfig.me` works, while
   `ping -c2 -W2 192.168.1.1` and `ping -c2 -W2 10.10.10.11` fail
   ([docs/network.md](docs/network.md), "Verifying it actually works").
 
-`whoami` is only the smoke test. Once it answers, replace it with a real
-service.
+The admin console (`/admin`) is on the internet like the rest of Keycloak. A
+Cloudflare Access application on `auth-librenfra.deverenozcan.com/admin` puts
+a login in front of it at Cloudflare's edge, without affecting the sign-in
+pages the applications use.
 
 ## Adding a service
 
-1. Create `ansible/compose/<name>/compose.yaml`. Join the `edge` network as
-   `external: true` and publish no ports - `cloudflared` reaches the container
-   by name. `ansible/compose/whoami/compose.yaml` is the pattern.
+1. Create `ansible/compose/<name>/compose.yaml`. Put the container that
+   serves on the `edge` network (`external: true`) and publish no ports -
+   `cloudflared` reaches it by name; anything behind it, like a database,
+   stays on the project's own network. `ansible/compose/keycloak/compose.yaml`
+   is the pattern.
 2. Add `- name: <name>` to `docker_host_projects` in
    `group_vars/docker_hosts.yml`. A secret goes under the entry's `env:` as a
-   `lookup('env', ...)` of a new variable in `.env`, like the tunnel token; the
-   playbook refuses to run while it is empty.
+   `lookup('env', ...)` of a new variable in `.env`, like Keycloak's; the
+   playbook refuses to run while it is empty. Add the variable's prefix to the
+   `grep -E` in the command line.
 3. Run the playbook again (`--tags docker` is enough).
 4. Add a public hostname to the tunnel that points at `http://<container>:<port>`.
 

@@ -34,13 +34,18 @@ docker_host_compose_dir: /mnt/data/compose
 # ansible/compose/<name>/, brought up in this order. cloudflared comes first:
 # it creates the "edge" network the others join.
 #
-# The tunnel token is per machine, in the controller's .env as
-# CLOUDFLARE_TUNNEL_TOKEN_<INVENTORY NAME> - CLOUDFLARE_TUNNEL_TOKEN_DMZ_DOCKER
-# here. Pass it into the run (dmz-docker-bootstrap.md); it is written to
-# /mnt/data/compose/cloudflared/.env, mode 0600, and nowhere else.
+# Secrets come from the controller's .env, passed into the run
+# (dmz-docker-bootstrap.md), and are written to the project's .env on the
+# machine, mode 0600, and nowhere else:
+#   CLOUDFLARE_TUNNEL_TOKEN_<INVENTORY NAME>  per machine - ..._DMZ_DOCKER here
+#   KEYCLOAK_DB_PASSWORD, KEYCLOAK_ADMIN_PASSWORD
 docker_host_projects:
   - name: cloudflared
     env:
       TUNNEL_TOKEN: >-
         {{ lookup('env', 'CLOUDFLARE_TUNNEL_TOKEN_' ~ (inventory_hostname | upper | replace('-', '_'))) }}
-  - name: whoami
+  # https://auth-librenfra.deverenozcan.com -> http://keycloak:8080
+  - name: keycloak
+    env:
+      KC_DB_PASSWORD: "{{ lookup('env', 'KEYCLOAK_DB_PASSWORD') }}"
+      KC_BOOTSTRAP_ADMIN_PASSWORD: "{{ lookup('env', 'KEYCLOAK_ADMIN_PASSWORD') }}"

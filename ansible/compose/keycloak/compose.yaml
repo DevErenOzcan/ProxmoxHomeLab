@@ -1,0 +1,63 @@
+# Keycloak at https://auth-librenfra.deverenozcan.com, with its own PostgreSQL.
+#
+# Cloudflare terminates TLS, and the tunnel carries the request to
+# http://keycloak:8080 over the "edge" network - so Keycloak serves plain HTTP
+# behind a proxy, and KC_HOSTNAME pins every URL it hands out to the public
+# https address. The hostname is one level under the domain on purpose:
+# Cloudflare's free certificate covers *.deverenozcan.com, not deeper names.
+#
+# PostgreSQL is on this project's own network only; cloudflared, on "edge",
+# cannot reach it.
+#
+# KC_DB_PASSWORD and KC_BOOTSTRAP_ADMIN_PASSWORD are in .env next to this
+# file, written by Ansible from the controller's environment
+# (group_vars/docker_hosts.yml). Both take effect once, on the first start:
+# PostgreSQL sets the password when it initialises its volume, and Keycloak
+# creates the bootstrap admin only while it has no admin. Changing them in
+# .env later changes neither.
+name: keycloak
+
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.0
+    command: start
+    environment:
+      KC_HOSTNAME: https://auth-librenfra.deverenozcan.com
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KC_DB_PASSWORD:?KC_DB_PASSWORD is not set in .env}
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD:?KC_BOOTSTRAP_ADMIN_PASSWORD is not set in .env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [default, edge]
+
+  postgres:
+    image: postgres:18.6
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KC_DB_PASSWORD:?KC_DB_PASSWORD is not set in .env}
+    volumes:
+      # From 18 on, the image keeps its data in /var/lib/postgresql/18/docker:
+      # the volume goes on /var/lib/postgresql, not on .../data as before.
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+    networks: [default]
+
+volumes:
+  pgdata:
+
+networks:
+  edge:
+    external: true
