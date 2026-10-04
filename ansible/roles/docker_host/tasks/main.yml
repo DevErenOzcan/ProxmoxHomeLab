@@ -1,0 +1,134 @@
+---
+# Docker Engine from Docker's own APT repository, its daemon settings, and the
+# compose projects this machine runs.
+#
+# The daemon settings are written before the packages are installed, so the
+# first start already uses them: with "data-root" on the data volume, nothing
+# of Docker's ever lands on the disposable OS disk.
+
+- name: docker_host | /etc/apt/keyrings exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# force: false - fetched again only when Docker's copy is newer. As on the
+# desktop, --check reports it whenever the server answers 200.
+- name: docker_host | Docker's signing key
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    dest: /etc/apt/keyrings/docker.asc
+    owner: root
+    group: root
+    mode: "0644"
+    force: false
+
+- name: docker_host | Docker's repository
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/docker.sources
+    content: |
+      Types: deb
+      URIs: https://download.docker.com/linux/ubuntu
+      Suites: {{ ansible_facts['distribution_release'] }}
+      Components: stable
+      Architectures: amd64
+      Signed-By: /etc/apt/keyrings/docker.asc
+    owner: root
+    group: root
+    mode: "0644"
+  register: docker_host_repo
+
+- name: docker_host | Refresh the APT cache after a repository change
+  ansible.builtin.apt:
+    update_cache: true
+  when: docker_host_repo is changed
+
+- name: docker_host | Is Docker installed
+  ansible.builtin.stat:
+    path: /usr/bin/docker
+  register: docker_host_bin
+
+# A dry run writes nothing, so on a machine without Docker neither the
+# repository nor /etc/docker exists, and nothing after this point can be
+# checked.
+- name: docker_host | Dry-run note
+  ansible.builtin.debug:
+    msg: >-
+      Dry run on a machine without Docker: --check wrote neither Docker's
+      repository nor /etc/docker, so the daemon settings, the packages and the
+      compose projects are not checked. A real run installs and starts them.
+  when:
+    - ansible_check_mode
+    - not docker_host_bin.stat.exists
+
+- name: docker_host | Engine, settings and projects
+  when: not (ansible_check_mode and not docker_host_bin.stat.exists)
+  block:
+    - name: docker_host | Configuration directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      loop:
+        - /etc/docker
+        - /etc/systemd/system/docker.service.d
+
+    - name: docker_host | Daemon settings
+      ansible.builtin.copy:
+        dest: /etc/docker/daemon.json
+        content: "{{ docker_host_daemon | to_nice_json }}\n"
+        owner: root
+        group: root
+        mode: "0644"
+      notify: docker_host | Restart docker
+
+    # nofail on the volume's fstab entry keeps a machine without its data disk
+    # bootable; this keeps docker from starting on such a machine and filling
+    # an empty /mnt/data on the OS disk instead.
+    - name: docker_host | docker waits for the mount its data-root lives on
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/docker.service.d/data-root.conf
+        content: |
+          [Unit]
+          RequiresMountsFor={{ docker_host_daemon['data-root'] }}
+        owner: root
+        group: root
+        mode: "0644"
+      when: "'data-root' in docker_host_daemon"
+      notify:
+        - docker_host | Reload systemd
+        - docker_host | Restart docker
+
+    - name: docker_host | Packages
+      ansible.builtin.apt:
+        name: "{{ docker_host_packages }}"
+        state: present
+        cache_valid_time: 3600
+
+    - name: docker_host | Docker runs and starts at boot
+      ansible.builtin.systemd_service:
+        name: docker
+        enabled: true
+        state: started
+
+    - name: docker_host | Users who may run docker
+      ansible.builtin.user:
+        name: "{{ item }}"
+        groups: docker
+        append: true
+      loop: "{{ docker_host_users }}"
+
+    # The projects below run against the daemon as configured above.
+    - name: docker_host | Apply daemon changes before the projects
+      ansible.builtin.meta: flush_handlers
+
+    - name: docker_host | Compose projects
+      ansible.builtin.include_tasks: project.yml
+      loop: "{{ docker_host_projects }}"
+      loop_control:
+        loop_var: project
+        label: "{{ project.name }}"

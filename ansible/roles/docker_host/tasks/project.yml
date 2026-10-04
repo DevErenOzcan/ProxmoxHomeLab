@@ -1,0 +1,51 @@
+---
+# One compose project: its directory from ansible/compose/<name>/, its .env
+# from the controller's environment, then `docker compose up`. Compose
+# recreates exactly the containers whose definition or environment changed.
+
+- name: "docker_host | {{ project.name }}: every .env value is set"
+  vars:
+    _missing: >-
+      {{ project.env | default({}) | dict2items
+         | selectattr('value', 'equalto', '') | map(attribute='key') | list }}
+  ansible.builtin.assert:
+    that: _missing | length == 0
+    quiet: true
+    fail_msg: >-
+      {{ project.name }} needs {{ _missing | join(', ') }}, which is empty.
+      These come from the controller's environment - see
+      inventories/production/group_vars/docker_hosts.yml for the variable
+      names, .env.example for where they are kept. Nothing was changed.
+
+- name: "docker_host | {{ project.name }}: directory"
+  ansible.builtin.file:
+    path: "{{ docker_host_compose_dir }}/{{ project.name }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: "docker_host | {{ project.name }}: files"
+  ansible.builtin.copy:
+    src: "{{ docker_host_compose_src }}/{{ project.name }}/"
+    dest: "{{ docker_host_compose_dir }}/{{ project.name }}/"
+    owner: root
+    group: root
+    mode: "0640"
+    directory_mode: "0750"
+
+- name: "docker_host | {{ project.name }}: .env"
+  ansible.builtin.copy:
+    dest: "{{ docker_host_compose_dir }}/{{ project.name }}/.env"
+    content: "{{ project.env.items() | map('join', '=') | join('\n') }}\n"
+    owner: root
+    group: root
+    mode: "0600"
+  when: project.env is defined
+  no_log: true
+
+- name: "docker_host | {{ project.name }}: up"
+  community.docker.docker_compose_v2:
+    project_src: "{{ docker_host_compose_dir }}/{{ project.name }}"
+    state: present
+    remove_orphans: true

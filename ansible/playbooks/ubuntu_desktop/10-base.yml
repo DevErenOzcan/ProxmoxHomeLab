@@ -10,5 +10,5 @@
       tags: [base]
     - role: desktop_gnome
       tags: [gnome]
-    - role: desktop_data_volume
+    - role: data_volume
       tags: [data]

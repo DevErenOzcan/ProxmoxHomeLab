@@ -1,0 +1,46 @@
+---
+# =============================================================================
+# The settings file for the DMZ Docker hosts (VM 110 dmz-docker, 10.10.20.10).
+# =============================================================================
+# Ubuntu Server cloud images (terraform/modules/ubuntu_server). cloud-init has
+# already set the address and the SSH key of the "ubuntu" user, which has no
+# password and passwordless sudo; this file is everything on top of that.
+
+# --- Reaching it -------------------------------------------------------------
+# Directly from the workstation: the route 10.10.0.0/16 via 192.168.1.201
+# (README, "Controller setup") and the firewall's WAN rule that lets the
+# workstation, and nothing else on the home network, reach the DMZ on port 22.
+# A rebuilt VM has a new host key: ssh-keygen -R <address> first.
+ansible_ssh_common_args: "-o StrictHostKeyChecking=accept-new"
+
+# --- Data volume -------------------------------------------------------------
+# The persistent disk (data_disks["110"] in terraform/environments/production),
+# mounted at /mnt/data. Docker's whole state - images, containers, volumes -
+# and the compose projects live on it, so a rebuilt VM starts the same
+# services with the same data.
+data_volume_label: docker-data
+
+# --- Docker ------------------------------------------------------------------
+# "local" is the log driver that rotates (5 x 20 MB per container); the
+# default, json-file, grows until the disk is full.
+docker_host_daemon:
+  data-root: /mnt/data/docker
+  log-driver: local
+docker_host_users:
+  - ubuntu
+docker_host_compose_dir: /mnt/data/compose
+
+# --- Compose projects --------------------------------------------------------
+# ansible/compose/<name>/, brought up in this order. cloudflared comes first:
+# it creates the "edge" network the others join.
+#
+# The tunnel token is per machine, in the controller's .env as
+# CLOUDFLARE_TUNNEL_TOKEN_<INVENTORY NAME> - CLOUDFLARE_TUNNEL_TOKEN_DMZ_DOCKER
+# here. Pass it into the run (dmz-docker-bootstrap.md); it is written to
+# /mnt/data/compose/cloudflared/.env, mode 0600, and nowhere else.
+docker_host_projects:
+  - name: cloudflared
+    env:
+      TUNNEL_TOKEN: >-
+        {{ lookup('env', 'CLOUDFLARE_TUNNEL_TOKEN_' ~ (inventory_hostname | upper | replace('-', '_'))) }}
+  - name: whoami

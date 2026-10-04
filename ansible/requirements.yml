@@ -17,7 +17,7 @@ collections:
   - name: ansibleguy.opnsense
     version: ">=1.2.16"
 
-  # ansible.posix.mount (roles/desktop_data_volume) and .authorized_key
+  # ansible.posix.mount (roles/data_volume) and .authorized_key
   # (roles/desktop_base). Comes free with apt's "ansible" package, so it was
   # never listed - a venv controller has to install it explicitly.
   - name: ansible.posix
@@ -26,3 +26,8 @@ collections:
   # community.general.snap and .timezone, used by roles/desktop_base.
   - name: community.general
     version: ">=8.0.0"
+
+  # community.docker.docker_compose_v2 (roles/docker_host). It drives the
+  # target's own docker CLI, so the target needs no Python Docker SDK.
+  - name: community.docker
+    version: ">=4.0.0"

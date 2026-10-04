@@ -1,0 +1,20 @@
+---
+# Desired state of the DMZ Docker hosts. From ansible/, with the venv active
+# and each host's tunnel token passed in from .env:
+#
+#   env $(grep '^CLOUDFLARE_TUNNEL_TOKEN_' ../.env) ANSIBLE_CONFIG=ansible.cfg \
+#     ansible-playbook playbooks/docker_hosts/site.yml --check --diff
+#   ... --tags data     the data volume at /mnt/data
+#   ... --tags docker   Docker Engine and the compose projects
+#
+# Settings: inventories/production/group_vars/docker_hosts.yml
+- name: DMZ Docker hosts
+  hosts: docker_hosts
+  become: true
+  gather_facts: true
+  roles:
+    # First: Docker's data-root is on the volume.
+    - role: data_volume
+      tags: [data]
+    - role: docker_host
+      tags: [docker]

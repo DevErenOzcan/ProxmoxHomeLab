@@ -55,5 +55,6 @@ output "next_steps" {
     "2. opnsense-bootstrap.md        terraform apply with the WAN unplugged, console install, then playbooks/opnsense/site.yml",
     "3. Add the static route from output home_router_static_route on the controller",
     "4. ubuntu-desktop-bootstrap.md  terraform apply (the desktop), then playbooks/ubuntu_desktop/site.yml",
+    "5. dmz-docker-bootstrap.md      terraform apply (the DMZ Docker host), a Cloudflare Tunnel token, then playbooks/docker_hosts/site.yml",
   ]
 }

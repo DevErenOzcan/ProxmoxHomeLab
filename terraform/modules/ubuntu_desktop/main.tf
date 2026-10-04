@@ -77,7 +77,7 @@ resource "proxmox_virtual_environment_vm" "ubuntu_desktop" {
 
   # The persistent data disk, owned by a modules/data_disk holder rather than
   # by this VM: destroying and rebuilding this VM leaves it, and its data, in
-  # place. /home lives on it (ansible/roles/desktop_data_volume).
+  # place. /home lives on it (ansible/roles/data_volume).
   dynamic "disk" {
     for_each = var.data_disk == null ? [] : [var.data_disk]
     content {

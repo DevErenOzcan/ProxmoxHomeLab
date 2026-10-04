@@ -64,4 +64,25 @@ resource "proxmox_download_file" "ubuntu_desktop_qcow2" {
   overwrite = false
 }
 
+# ---------------------------------------------------------------------------
+# Ubuntu Server cloud image - every modules/ubuntu_server guest
+# ---------------------------------------------------------------------------
+# Stored as .qcow2 for the "import" content type (the image is qcow2 despite
+# its .img name upstream). Bumping the build replaces this file; guests created
+# or rebuilt (-replace) from then on start from the new one, while running
+# guests ignore it (ignore_changes in modules/ubuntu_server).
+resource "proxmox_download_file" "ubuntu_server_cloudimg" {
+  content_type       = "import"
+  datastore_id       = "local"
+  node_name          = var.node_name
+  url                = var.ubuntu_server_image_url
+  file_name          = "ubuntu-26.04-server-cloudimg-amd64.qcow2"
+  checksum           = var.ubuntu_server_image_sha256
+  checksum_algorithm = "sha256"
+  upload_timeout     = 1800
+
+  # Ubuntu prunes old builds as well; same reasoning as above.
+  overwrite = false
+}
+
 

@@ -89,7 +89,20 @@ variable "data_disks" {
   EOT
   default = {
     "102" = 200 # ubuntu-desktop: /home
+    "110" = 50  # dmz-docker: Docker's data-root and the compose projects
   }
+}
+
+variable "ssh_public_keys" {
+  type        = list(string)
+  description = <<-EOT
+    Public keys cloud-init installs for the "ubuntu" user of every
+    modules/ubuntu_server guest. The controller's key (WSL
+    ~/.ssh/id_ed25519.pub), the same one ansible uses everywhere.
+  EOT
+  default = [
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMCdb2x7BVEHm0qXNTy2RiEHRV+osCiw7DS5eBQD+yXE ansible-wsl",
+  ]
 }
 
 variable "desktop_datastore" {
@@ -122,6 +135,25 @@ variable "ubuntu_desktop_qcow2_sha256" {
   type        = string
   description = "SHA256 checksum for the qcow2 image"
   default     = "14bdc8f2f3fd6b964b3932507611dd00ab45570b9860e7ce9e02d83d049b20af"
+}
+
+# ---------------------------------------------------------------------------
+# Server image
+# ---------------------------------------------------------------------------
+variable "ubuntu_server_image_url" {
+  type        = string
+  description = <<-EOT
+    Ubuntu Server 26.04 (resolute) cloud image, pinned to one build. Bump the
+    URL and ubuntu_server_image_sha256 together; the checksum is in
+    SHA256SUMS in the same directory.
+  EOT
+  default     = "https://cloud-images.ubuntu.com/releases/resolute/release-20260927/ubuntu-26.04-server-cloudimg-amd64.img"
+}
+
+variable "ubuntu_server_image_sha256" {
+  type        = string
+  description = "SHA256 checksum for the cloud image"
+  default     = "8800651811af9a85465ad1d552add729947bb16488dddb4a9b5305a3d97332b2"
 }
 
 

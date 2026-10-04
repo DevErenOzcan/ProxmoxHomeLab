@@ -53,6 +53,12 @@ opnsense_aliases:
     type: network
     content: ["{{ opnsense_lab_supernet }}"]
     description: "Every internal segment, summarised"
+  # A DHCP lease on the home router: reserve it there. If it moves, the rule
+  # naming this alias stops matching - closed, not open.
+  - name: MGMT_WORKSTATION
+    type: host
+    content: ["192.168.1.24"]
+    description: "The Windows workstation (and its WSL) everything is managed from"
 
 # --- firewall rules ---------------------------------------------------------
 # Order matters and is expressed by 'sequence'. The policy is asymmetric on
@@ -80,8 +86,8 @@ opnsense_rules:
     destination_net: "(self)"
     destination_port: 443
 
-  # Only the LAN: DMZ and LAB machines are reached through a LAN machine, so
-  # nothing on the home network can open a connection into them directly.
+  # Only the LAN: apart from SSH from the workstation into the DMZ (sequence
+  # 13), nothing on the home network can open a connection into DMZ or LAB.
   - description: "Home network may reach the LAN segment"
     interface: "{{ opnsense_if.wan }}"
     sequence: 11
@@ -102,6 +108,20 @@ opnsense_rules:
     protocol: TCP
     source_net: HOME_LAN
     destination_net: "(self)"
+    destination_port: 22
+
+  # The DMZ machines are managed from the workstation (decision of
+  # 2026-10-04): SSH only, from that one address. Their services are
+  # published through Cloudflare Tunnel, which dials out, so nothing else on
+  # the home network needs a way in.
+  - description: "Workstation may reach the DMZ over SSH"
+    interface: "{{ opnsense_if.wan }}"
+    sequence: 13
+    action: pass
+    direction: in
+    protocol: TCP
+    source_net: MGMT_WORKSTATION
+    destination_net: "{{ opnsense_segments.dmz.cidr }}"
     destination_port: 22
 
   # ---- LAN -----------------------------------------------------------------

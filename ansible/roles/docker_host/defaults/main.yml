@@ -1,0 +1,27 @@
+---
+# Values live in inventories/production/group_vars/docker_hosts.yml; these
+# defaults only make the role a no-op where something is not declared.
+docker_host_packages:
+  - docker-ce
+  - docker-ce-cli
+  - containerd.io
+  - docker-buildx-plugin
+  - docker-compose-plugin
+# /etc/docker/daemon.json, as a dictionary. When it sets "data-root", the
+# docker service waits for the mount that path lives on and does not start
+# without it.
+docker_host_daemon: {}
+# Users who may run docker without sudo. Membership of the docker group is
+# root on the machine in all but name.
+docker_host_users: []
+
+# --- compose projects --------------------------------------------------------
+# Where the projects live on the machine, one directory each.
+docker_host_compose_dir: /srv/compose
+# Where they come from in this repo: ansible/compose/<name>/.
+docker_host_compose_src: "{{ playbook_dir }}/../../compose"
+# Brought up in this order:
+#   - name: cloudflared                  ansible/compose/cloudflared/
+#     env:                               written to .env next to compose.yaml,
+#       TUNNEL_TOKEN: "{{ lookup('env', '...') }}"   mode 0600; every value is required
+docker_host_projects: []

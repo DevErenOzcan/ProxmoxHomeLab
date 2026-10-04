@@ -134,7 +134,8 @@ desktop_gnome_settings:
 # Binding /home stops the graphical session and the user's own services (both
 # keep files open there) and starts the display manager again afterwards; the
 # SSH session ansible runs in is not affected.
-desktop_data_volume_binds:
+data_volume_label: desktop-data
+data_volume_binds:
   - name: home
     path: /home
     stop: [display-manager.service, user@1000.service]

@@ -1,0 +1,25 @@
+# This machine's own Cloudflare Tunnel - one per DMZ machine. cloudflared
+# dials out to Cloudflare on 443 (the DMZ may reach the internet and nothing
+# else), so nothing on this machine listens for the internet: a public
+# hostname is set on the tunnel in the Cloudflare dashboard and points at a
+# container on the "edge" network by name, e.g. http://whoami:80.
+#
+# The "edge" network is created here, so this project comes first; every
+# project that publishes something joins it as external.
+#
+# TUNNEL_TOKEN is in .env next to this file, which Ansible writes from the
+# controller's environment (group_vars/docker_hosts.yml) - never from the repo.
+name: cloudflared
+
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:2026.9.3
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:?TUNNEL_TOKEN is not set in .env}
+    restart: unless-stopped
+    networks: [edge]
+
+networks:
+  edge:
+    name: edge

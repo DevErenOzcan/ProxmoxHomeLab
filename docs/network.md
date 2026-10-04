@@ -71,9 +71,11 @@ Fixed addresses:
 | 192.168.1.200 | Proxmox host |
 | 192.168.1.201 | OPNsense WAN |
 | 10.10.10.11 | ubuntu-desktop (VM 102), DHCP reservation on `BC:24:11:B8:0E:F8` |
+| 10.10.20.10 | dmz-docker (VM 110), static, set by cloud-init |
 
 DHCP pools are `10.10.10.100-245` (LAN) and `10.10.30.100-199` (LAB) and are
-for throwaway guests. The DMZ has no pool.
+for throwaway guests. The DMZ has no pool: its guests are cloud images whose
+address cloud-init sets.
 
 `terraform output` prints all of this, so you do not have to keep this table in
 your head.
@@ -92,6 +94,7 @@ that already exists.
 2. The firewall, installed with its WAN unplugged:
    [opnsense-bootstrap.md](../opnsense-bootstrap.md).
 3. The desktop: [ubuntu-desktop-bootstrap.md](../ubuntu-desktop-bootstrap.md).
+4. The DMZ Docker host: [dmz-docker-bootstrap.md](../dmz-docker-bootstrap.md).
 
 ## Firewall policy
 
@@ -101,7 +104,8 @@ The policy is asymmetric on purpose:
   included, and the home network reaches them: two-way.
 - **DMZ and LAB reach the internet and nothing else.** Nothing there can open a
   connection into the LAN, the home network or each other's segment.
-- **From home, only the LAN is reachable.** DMZ and LAB machines are managed
+- **From home, only the LAN is reachable** - plus SSH from the workstation into
+  the DMZ, which is how the DMZ machines are managed. LAB machines are reached
   through a LAN machine.
 
 A stateful firewall needs only the initiating direction allowed; replies ride
@@ -110,12 +114,16 @@ the existing state.
 These tables are the rules the firewall runs, one for one with
 `opnsense_rules` in `ansible/roles/opnsense_config/defaults/main.yml`; `seq` is
 the rule's sequence there. Traffic no rule matches falls to OPNsense's implicit
-default block. Two aliases keep the rules readable:
+default block. Three aliases keep the rules readable:
 
 | Alias | Type | Content |
 |---|---|---|
 | `HOME_LAN` | Network(s) | `192.168.1.0/24` |
 | `LAB_NETS` | Network(s) | `10.10.0.0/16` |
+| `MGMT_WORKSTATION` | Host(s) | `192.168.1.24`, the Windows workstation and its WSL |
+
+`192.168.1.24` is a DHCP lease from the home router; reserve it there. If it
+moves, WAN sequence 13 stops matching - the DMZ closes, it does not open.
 
 ### WAN (`vtnet0`)
 
@@ -127,11 +135,11 @@ from `192.168.1.0/24` is ever evaluated and the rules below never match.
 | 10 | Pass | `HOME_LAN` | this firewall | TCP 443 | Reach this web UI from home |
 | 11 | Pass | `HOME_LAN` | 10.10.10.0/24 | any | Reach the LAN guests from home |
 | 12 | Pass | `HOME_LAN` | this firewall | TCP 22 | SSH to the firewall from home |
+| 13 | Pass | `MGMT_WORKSTATION` | 10.10.20.0/24 | TCP 22 | Manage the DMZ machines from the workstation |
 
-Everything else inbound stays blocked by the implicit default — the DMZ and
-LAB included: from home they are reached through a LAN machine, never
-directly. Nothing from the internet can reach in at all — the home router
-forwards no ports.
+Everything else inbound stays blocked by the implicit default: the rest of the
+DMZ, and the whole LAB, which is reached through a LAN machine. Nothing from
+the internet can reach in at all — the home router forwards no ports.
 
 ### LAN (`vtnet1`)
 
@@ -233,7 +241,7 @@ what it can only report is declared there too, and checked:
 
 | What | Where | How |
 |---|---|---|
-| Aliases `HOME_LAN`, `LAB_NETS` | `opnsense_aliases` | written |
+| Aliases `HOME_LAN`, `LAB_NETS`, `MGMT_WORKSTATION` | `opnsense_aliases` | written |
 | Every firewall rule in the tables above | `opnsense_rules` | written |
 | Unbound forwarder | `opnsense_dns_forwarders` | written |
 | Dnsmasq listen interfaces and DNS port | `opnsense_dnsmasq_interfaces`, `opnsense_dnsmasq_port` | written (partial settings update) |
@@ -310,7 +318,11 @@ Consequences that are already baked into the rules above:
 Adding **Cloudflare Access** in front of a hostname gives it an
 authentication gate (Google/GitHub/e-mail OTP) without touching these rules.
 
-No DMZ machine is built yet.
+The first DMZ machine is **dmz-docker** (VM 110, `10.10.20.10`,
+[dmz-docker-bootstrap.md](../dmz-docker-bootstrap.md)). Its `cloudflared` and
+its services share a Docker network, `edge`; the tunnel's public hostnames
+point at containers by name, and no container publishes a port, so the only
+thing listening on the VM's address is sshd for WAN sequence 13.
 
 ## Verifying it actually works
 
@@ -342,7 +354,9 @@ From your own machine on the home network:
 ping -c1 10.10.10.11
 ```
 
-Must succeed once the static route is in place.
+Must succeed once the static route is in place. From the workstation,
+`ssh ubuntu@10.10.20.10 true` must succeed as well, and `ping -c1 10.10.20.10`
+fail: sequence 13 lets SSH in and nothing else.
 
 ## When the firewall is down
 

@@ -77,6 +77,8 @@ locals {
     opnsense_lab = local.networks.lab.gateway
 
     ubuntu_desktop = "10.10.10.11"
+    # The DMZ has no DHCP: its guests get static addresses from cloud-init.
+    dmz_docker = "10.10.20.10"
   }
 
   prefix = 24

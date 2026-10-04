@@ -52,3 +52,35 @@ module "ubuntu_desktop_vm" {
 
   depends_on = [module.firewall]
 }
+
+# ---------------------------------------------------------------------------
+# DMZ Docker host (dmz-docker-bootstrap.md)
+# ---------------------------------------------------------------------------
+# Internet-facing services in containers, published through this machine's own
+# Cloudflare Tunnel; nothing on it listens for the internet. The OS disk is
+# disposable: Docker's state and the compose projects live on its data disk,
+# data_disks["110"], attached as scsi1.
+#
+# Sized for what the host has left: with VM 102 (12 GB) and the firewall
+# (2 GB) running, about 6.5 GB of the host's 22 GB are free.
+module "dmz_docker" {
+  source = "../../modules/ubuntu_server"
+
+  node_name       = var.node_name
+  vm_id           = 110
+  vm_name         = "dmz-docker"
+  description     = "Docker host in the DMZ, published through its own Cloudflare Tunnel. Managed by Terraform."
+  image_file_id   = proxmox_download_file.ubuntu_server_cloudimg.id
+  network_bridge  = local.networks.dmz.bridge
+  ipv4_address    = "${local.addresses.dmz_docker}/${local.prefix}"
+  ipv4_gateway    = local.networks.dmz.gateway
+  dns_servers     = [local.networks.dmz.gateway]
+  ssh_public_keys = var.ssh_public_keys
+  cores           = 2
+  memory          = 3 * 1024
+  disk_size       = 20
+  data_disk       = try(module.data_disk["110"].disk, null)
+  tags            = ["ubuntu", "docker", "dmz", "terraform"]
+
+  depends_on = [module.firewall]
+}

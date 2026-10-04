@@ -10,7 +10,8 @@ and the home network.
 | `pve1`: Proxmox VE 9.2, node name `proxmox`, Ryzen 7 5800H laptop | 192.168.1.200 | `ansible/playbooks/proxmox` |
 | VM 100 `opnsense-fw`: OPNsense 26.7 | 192.168.1.201 (WAN); 10.10.10.1, 10.10.20.1, 10.10.30.1 | `terraform/` + `ansible/playbooks/opnsense` |
 | VM 102 `ubuntu-desktop`: Ubuntu 24.04 desktop, both GPUs passed through, `/home` on a 200 GB persistent disk | 10.10.10.11 | `terraform/` + `ansible/playbooks/ubuntu_desktop` |
-| VM 9102 `data-102`: only holds VM 102's data disk, never started | - | `terraform/` (`data_disks`) |
+| VM 110 `dmz-docker`: Ubuntu Server 26.04, Docker, its own Cloudflare Tunnel, Docker's state on a 50 GB persistent disk | 10.10.20.10 | `terraform/` + `ansible/playbooks/docker_hosts` |
+| VMs 9102 `data-102`, 9110 `data-110`: only hold VM 102's and VM 110's data disks, never started | - | `terraform/` (`data_disks`) |
 
 The firewall routes three internal segments: **LAN** (trusted, two-way with the
 home network), **DMZ** (internet-facing services, internet only) and **LAB**
@@ -30,14 +31,15 @@ of this repository.
 controller (WSL)
   .venv/bin/ansible-playbook ──SSH──────▶ pve1            host OS
                              ──SSH──────▶ ubuntu-desktop  via the route 10.10.0.0/16 -> 192.168.1.201
+                             ──SSH──────▶ dmz-docker      same route; WAN rule 13 lets only this machine in
                              ──HTTPS API▶ OPNsense        192.168.1.201
   terraform ─────────────────HTTPS API▶ pve1:8006       the VMs
 ```
 
 | Tool | Run from | Applies |
 |---|---|---|
-| `ansible-playbook` (the repo's `.venv`) | `ansible/` | host OS state, the desktop's in-guest state, the firewall's API configuration |
-| `terraform` | `terraform/environments/production/` | the firewall VM and the desktop VM |
+| `ansible-playbook` (the repo's `.venv`) | `ansible/` | host OS state, the guests' in-guest state, the firewall's API configuration |
+| `terraform` | `terraform/environments/production/` | the VMs and their data disks |
 
 ## Repository layout
 
@@ -46,6 +48,7 @@ README.md                      this file
 proxmox-bootstrap.md           from a blank laptop to a configured host
 opnsense-bootstrap.md          the firewall VM, its install and its API key
 ubuntu-desktop-bootstrap.md    the GPU workstation VM
+dmz-docker-bootstrap.md        the DMZ Docker host and its Cloudflare Tunnel
 docs/
   network.md                   network design, firewall policy, verification
   homelab-ag-haritasi.html     interactive network map (Turkish)
@@ -61,17 +64,22 @@ ansible/
     proxmox/site.yml           10-base, 15-storage, 20-network, 30-gpu, 40-laptop, 99-reboot
     opnsense/site.yml
     ubuntu_desktop/site.yml
+    docker_hosts/site.yml
   roles/
     pve_repos, base_packages, pve_storage, network_bridge,
     pve_common, gpu_passthrough, vendor_reset, laptop_lid    the Proxmox host
     opnsense_config                                           the firewall, over its REST API
-    desktop_base, desktop_gnome, desktop_data_volume          the desktop
+    desktop_base, desktop_gnome                               the desktop
+    docker_host                                               the Docker hosts
+    data_volume                                               a guest's persistent data disk
+  compose/<project>/           what the Docker hosts run, one compose.yaml each
 
 terraform/
-  environments/production/     the live environment: VM 100 and VM 102
+  environments/production/     the live environment: VMs 100, 102 and 110
   modules/
     opnsense/                  four NICs in a fixed order, WAN can start unplugged
     ubuntu_desktop/            q35 + OVMF, GPUs and USB ports passed through
+    ubuntu_server/             a cloud-image guest; address and SSH key from cloud-init
     data_disk/                 a persistent data disk, owned by a never-started holder VM
 ```
 
@@ -104,8 +112,10 @@ echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://
 sudo apt update && sudo apt install terraform
 ```
 
-**SSH key.** One key for both SSH targets; its public half is in
-`group_vars/ubuntu_desktop.yml` and in root's `authorized_keys` on pve1:
+**SSH key.** One key for every SSH target; its public half is in
+`group_vars/ubuntu_desktop.yml`, in `ssh_public_keys` in
+`terraform/environments/production/variables.tf` (cloud-init guests) and in
+root's `authorized_keys` on pve1:
 
 ```bash
 ssh-keygen -t ed25519 -C ansible-wsl
@@ -123,11 +133,11 @@ route -p add 10.10.0.0 mask 255.255.0.0 192.168.1.201
 
 | File | Holds | Start from |
 |---|---|---|
-| `.env` | `OPNSENSE_API_KEY`, `OPNSENSE_API_SECRET` | `.env.example` |
+| `.env` | `OPNSENSE_API_KEY`, `OPNSENSE_API_SECRET`, one `CLOUDFLARE_TUNNEL_TOKEN_<HOST>` per Docker host | `.env.example` |
 | `terraform/environments/production/secret.tfvars` | `proxmox_password` (root@pam) | `secret.tfvars.example` |
 
-Nothing loads `.env` by itself: the OPNsense command line below passes the two
-values into that one run.
+Nothing loads `.env` by itself: the command lines below pass the values a
+playbook needs into that one run.
 
 ---
 
@@ -142,6 +152,9 @@ In this order; each guide ends where the next one starts.
    API key and apply the configuration.
 3. **[ubuntu-desktop-bootstrap.md](ubuntu-desktop-bootstrap.md)**: create the
    desktop VM, give it SSH and apply its configuration.
+4. **[dmz-docker-bootstrap.md](dmz-docker-bootstrap.md)**: let the workstation
+   into the DMZ, create the Docker host, its Cloudflare Tunnel and its
+   containers.
 
 `terraform output next_steps` prints the same order.
 
@@ -155,6 +168,7 @@ Always look before you apply. From `ansible/`, with the venv active:
 ANSIBLE_CONFIG=ansible.cfg ansible-playbook playbooks/proxmox/site.yml --check --diff
 ANSIBLE_CONFIG=ansible.cfg ansible-playbook playbooks/ubuntu_desktop/site.yml --check --diff
 env $(grep '^OPNSENSE_API_' ../.env) ANSIBLE_CONFIG=ansible.cfg ansible-playbook playbooks/opnsense/site.yml --check --diff
+env $(grep '^CLOUDFLARE_TUNNEL_TOKEN_' ../.env) ANSIBLE_CONFIG=ansible.cfg ansible-playbook playbooks/docker_hosts/site.yml --check --diff
 ```
 
 Drop `--check --diff` to apply. Narrow a run with `--tags`:
@@ -163,6 +177,7 @@ Drop `--check --diff` to apply. Narrow a run with `--tags`:
 |---|---|
 | `proxmox/site.yml` | `base` repositories and packages · `storage` content types of "local", the `vmdata` storage · `network` bridges, their IPv6, guest isolation · `gpu` IOMMU, vfio-pci, vendor-reset · `laptop` lid switch |
 | `ubuntu_desktop/site.yml` | `base` SSH key, APT repositories, packages, snaps, timezone, PRIME · `gnome` dconf defaults · `data` the data disk and `/home` on it |
+| `docker_hosts/site.yml` | `data` the data disk at `/mnt/data` · `docker` Docker Engine and the compose projects |
 
 Terraform, from `terraform/environments/production/`:
 
@@ -189,6 +204,7 @@ Before a real run, know what it does:
 |---|---|
 | The Proxmox host: bridges, vfio-pci IDs, kernel command line, storage | `ansible/inventories/production/group_vars/proxmox_nodes.yml`; everything not set there is a role default in `ansible/roles/<role>/defaults/main.yml` |
 | The desktop: packages, snaps, GNOME, data volume | `ansible/inventories/production/group_vars/ubuntu_desktop.yml` |
+| The Docker hosts: daemon settings, which projects run | `ansible/inventories/production/group_vars/docker_hosts.yml`; the projects themselves in `ansible/compose/<name>/` |
 | The firewall: aliases, rules, DNS, DHCP | `ansible/roles/opnsense_config/defaults/main.yml` |
 | The VMs: sizes, NICs, passthrough devices | `terraform/modules/<vm>/variables.tf`; addresses and segments in `terraform/environments/production/locals.tf` |
 | A VM's persistent data disk | `data_disks` in `terraform/environments/production/variables.tf`: VM ID => size in GB, then pass `module.data_disk["<id>"].disk` to the VM |
