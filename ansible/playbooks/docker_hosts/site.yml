@@ -5,6 +5,7 @@
 #
 #   env $(grep -E '^(CLOUDFLARE_TUNNEL_TOKEN_|KEYCLOAK_)' ../.env) ANSIBLE_CONFIG=ansible.cfg \
 #     ansible-playbook playbooks/docker_hosts/site.yml --check --diff
+#   ... --tags console  autologin on the Proxmox serial console
 #   ... --tags data     the data volume at /mnt/data
 #   ... --tags docker   Docker Engine and the compose projects
 #
@@ -13,6 +14,41 @@
   hosts: docker_hosts
   become: true
   gather_facts: true
+  pre_tasks:
+    # The "ubuntu" user has no password, so the Proxmox console (xterm.js -
+    # the display is serial0) could show a login prompt but never log in.
+    # Only someone already logged in to Proxmox reaches this console, and
+    # they own the VM anyway; SSH stays key-only. The agetty line is the
+    # unit's own plus --autologin.
+    - name: Drop-in directory for the serial console
+      ansible.builtin.file:
+        path: /etc/systemd/system/serial-getty@ttyS0.service.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      tags: [console]
+
+    - name: Serial console logs in as ubuntu
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/serial-getty@ttyS0.service.d/autologin.conf
+        content: |
+          [Service]
+          ExecStart=
+          ExecStart=-/usr/sbin/agetty --autologin ubuntu --noreset --noclear --issue-file=/etc/issue:/etc/issue.d:/run/issue.d:/usr/lib/issue.d --keep-baud 115200,57600,38400,9600 - ${TERM}
+        owner: root
+        group: root
+        mode: "0644"
+      register: docker_hosts_console
+      tags: [console]
+
+    - name: Restart the serial console
+      ansible.builtin.systemd_service:
+        name: serial-getty@ttyS0.service
+        state: restarted
+        daemon_reload: true
+      when: docker_hosts_console is changed
+      tags: [console]
   roles:
     # First: Docker's data-root is on the volume.
     - role: data_volume

@@ -215,12 +215,17 @@
 
     # ---- write ---------------------------------------------------------------
     # Aliases first: the rules below refer to them by name.
+    #
+    # reload defaults to false in this module, unlike the rule module: without
+    # it a new alias is saved but its pf table stays empty, and a rule naming
+    # it matches nothing (MGMT_WORKSTATION, 2026-10-04).
     - name: opnsense_config | Aliases
       ansibleguy.opnsense.alias:
         name: "{{ item.name }}"
         type: "{{ item.type }}"
         content: "{{ item.content }}"
         description: "{{ item.description | default(omit) }}"
+        reload: true
         state: present
       loop: "{{ opnsense_aliases }}"
       loop_control:

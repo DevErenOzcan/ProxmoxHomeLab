@@ -23,9 +23,16 @@ data_volume_label: docker-data
 # --- Docker ------------------------------------------------------------------
 # "local" is the log driver that rotates (5 x 20 MB per container); the
 # default, json-file, grows until the disk is full.
+#
+# containerd-snapshotter off: from Docker 29 on, a fresh install keeps images
+# and container layers in containerd's own store, /var/lib/containerd on the OS
+# disk, and only volumes under data-root. Off, all of it is under data-root
+# (2026-10-04: 1.6 GB of images had landed on the OS disk).
 docker_host_daemon:
   data-root: /mnt/data/docker
   log-driver: local
+  features:
+    containerd-snapshotter: false
 docker_host_users:
   - ubuntu
 docker_host_compose_dir: /mnt/data/compose

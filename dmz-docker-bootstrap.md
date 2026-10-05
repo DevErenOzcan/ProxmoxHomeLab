@@ -6,10 +6,12 @@ rule that lets the workstation in, the VM, the tunnel, and the playbook that
 applies the rest. The last sections add a service and rebuild the VM.
 
 The VM is Ubuntu Server 26.04 from Ubuntu's cloud image. cloud-init sets its
-static address and the controller's SSH key on first boot; there is no
-password, so the Proxmox console shows the boot but nobody can log in there.
-SSH is the only way in, and only from the workstation (`192.168.1.24`) - WAN
-sequence 13 on the firewall. Nothing on the VM listens for the internet:
+static address and the controller's SSH key on first boot; `ubuntu` has no
+password. Over the network, SSH with that key is the only way in, and only
+from the workstation (`192.168.1.24`) - WAN sequence 13 on the firewall. The
+Proxmox console is a serial one (open it as **xterm.js**; noVNC shows nothing)
+and logs in as `ubuntu` by itself once the playbook has run (`--tags
+console`): whoever reaches it is logged in to Proxmox and owns the VM anyway. Nothing on the VM listens for the internet:
 `cloudflared` dials out to Cloudflare, and the services sit next to it on a
 Docker network without published ports.
 
