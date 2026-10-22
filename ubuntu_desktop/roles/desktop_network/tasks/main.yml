@@ -1,0 +1,22 @@
+---
+# The desktop's address: a NetworkManager profile bound to the VM's MAC, with
+# a static address and the route into the firewalled segments.
+#
+# NetworkManager reads the file when it starts, so a change takes effect at
+# the next boot - never on the running connection, which this very run may be
+# using. Moving the VM to another bridge is exactly that: write the profile,
+# then restart the VM on the new bridge (README.md, "Moving it to another
+# network").
+#
+# With a profile that matches the NIC, NetworkManager stops creating its
+# "Wired connection 1" DHCP profile for it. netplan's 10-lxc.yaml from the
+# image names enp5s0, which does not exist here, and is left alone.
+
+- name: desktop_network | NetworkManager profile
+  ansible.builtin.template:
+    src: nmconnection.j2
+    dest: "/etc/NetworkManager/system-connections/{{ desktop_network.id }}.nmconnection"
+    owner: root
+    group: root
+    mode: "0600"
+  when: desktop_network | length > 0

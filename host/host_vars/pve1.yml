@@ -1,0 +1,89 @@
+---
+# =============================================================================
+# pve1 - Proxmox VE 9 on a Ryzen 7 5800H laptop, 192.168.1.200, node "proxmox"
+# =============================================================================
+# Everything specific to this machine. What is not set here is a role
+# default (roles/<role>/defaults/main.yml): change a value by adding it here,
+# not by editing the role.
+#
+# Hardware: one wired NIC (nic0, Realtek RTL8111), two NVMe disks, an AMD
+# Cezanne iGPU and an NVIDIA RTX 3050 Ti - both passed to the desktop VM.
+
+# --- Storage -----------------------------------------------------------------
+#   Samsung 512 GB     the installer's LVM: "local" (directory) and
+#                      "local-lvm" (thin pool) - OS disks and images
+#   Intel 670p 512 GB  "vmdata": thick LVM for the VMs' persistent data disks
+#
+# By /dev/disk/by-id, never nvme0n1/nvme1n1: those names can swap between boots.
+pve_storage_lvm:
+  - id: vmdata
+    device: /dev/disk/by-id/nvme-INTEL_SSDPEKNW512GZL_PHKA215401EP512A
+
+# "import" lets Terraform import disk images from "local" into a VM.
+pve_storage_local_content:
+  - iso
+  - vztmpl
+  - backup
+  - import
+
+# --- Network bridges ---------------------------------------------------------
+#   vmbr0  192.168.1.0/24   the home network: the host, the desktop VM and the
+#                           firewall's WAN leg (made by the installer)
+#   vmbr1  10.10.10.0/24    LAN  )
+#   vmbr2  10.10.20.0/24    DMZ  )  internal segments, routed by the OPNsense
+#   vmbr3  10.10.30.0/24    LAB  )  firewall VM (librenfra repo)
+#
+# The internal bridges have no port and the host has no address on them, so
+# the only way in or out is through the firewall.
+#
+# gateway_port: guests on that bridge may talk to this port only - the
+# firewall's NIC on the segment (VM 100 netN -> tap100iN) - never to each
+# other.
+#
+# The comments are written into /etc/network/interfaces as they are: edit
+# them and the next run rewrites the host's network file.
+network_bridges:
+  - name: vmbr1
+    comment: "LAN 10.10.10.0/24 - trusted guests, gateway 10.10.10.1 on OPNsense vtnet1"
+    ports: "none"
+    stp: "off"     # quoted: YAML turns bare off/on/no/yes into booleans
+    fd: 0
+  - name: vmbr2
+    comment: "DMZ 10.10.20.0/24 - internet-facing services + cloudflared, gateway 10.10.20.1 on vtnet2"
+    ports: "none"
+    stp: "off"
+    fd: 0
+    gateway_port: tap100i2
+  - name: vmbr3
+    comment: "LAB 10.10.30.0/24 - experiments and quarantine, gateway 10.10.30.1 on vtnet3"
+    ports: "none"
+    stp: "off"
+    fd: 0
+    gateway_port: tap100i3
+
+# --- GPU passthrough ---------------------------------------------------------
+gpu_passthrough_grub_cmdline: "quiet amd_iommu=on iommu=pt pcie_acs_override=downstream,multifunction"
+# The [vendor:device] pairs from "lspci -nn" bound to vfio-pci:
+#   10de:25a0  NVIDIA GA107M / RTX 3050 Ti Mobile   (01:00.0)
+#   1002:1638  AMD Cezanne iGPU                     (06:00.0)
+#   1002:1637  AMD Renoir HD Audio                  (06:00.1)
+#   1022:15e2  AMD Audio Coprocessor                (06:00.5)
+#   1022:15e3  AMD Family 17h/19h HD Audio          (06:00.6)
+#   1022:15df  AMD PSP/CCP crypto co-processor
+#   14c3:7961  MediaTek MT7921 wireless
+gpu_passthrough_pci_ids:
+  - "10de:25a0"
+  - "14c3:7961"
+  - "1002:1637"
+  - "1022:15df"
+  - "1022:15e2"
+  - "1022:15e3"
+  - "1002:1638"
+
+# --- Reboot ------------------------------------------------------------------
+# A run that changes GRUB, kernel modules or the initramfs - or a dist-upgrade
+# that brings a new kernel - leaves /run/reboot-required behind, and the last
+# play reboots the host N minutes later. A run without such a change never
+# reboots. Skip it for one run with -e pve_reboot_after_converge=false.
+pve_reboot_after_converge: true
+pve_reboot_delay_minutes: 1

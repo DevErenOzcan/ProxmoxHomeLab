@@ -1,0 +1,22 @@
+# {{ ansible_managed }}
+# roles/desktop_network; the values are in host_vars/desktop.yml.
+[connection]
+id={{ desktop_network.id }}
+uuid={{ desktop_network.id | to_uuid }}
+type=ethernet
+autoconnect=true
+autoconnect-priority=100
+
+[ethernet]
+mac-address={{ desktop_network.mac_address }}
+
+[ipv4]
+method=manual
+address1={{ desktop_network.address }},{{ desktop_network.gateway }}
+dns={{ desktop_network.dns | join(';') }};
+{% for route in desktop_network.routes | default([]) %}
+route{{ loop.index }}={{ route.to }},{{ route.via }}
+{% endfor %}
+
+[ipv6]
+method=disabled

@@ -1,0 +1,86 @@
+---
+# The Proxmox host's desired state, from this directory with the venv active:
+#
+#   ansible-playbook site.yml --check --diff     what would change
+#   ansible-playbook site.yml                    apply it
+#
+# One part at a time with --tags:
+#   base      package repositories, dist-upgrade, packages, kernel headers
+#   storage   content types of "local", the vmdata storage
+#   network   bridges vmbr1-3, the host's IPv6 off on them, guest isolation
+#   gpu       IOMMU, vfio-pci, vendor-reset (takes effect after a reboot)
+#   laptop    keep running with the lid closed
+#
+# The last play reboots the host when a change needs it; add
+# -e pve_reboot_after_converge=false to keep it up for this run.
+# Settings: host_vars/pve1.yml
+
+- name: Repositories and packages
+  hosts: proxmox
+  roles:
+    - role: pve_repos
+      tags: [base]
+    # Needs the repositories above: kernel headers come from them.
+    - role: base_packages
+      tags: [base]
+
+- name: Storage
+  hosts: proxmox
+  roles:
+    - role: pve_storage
+      tags: [storage]
+
+- name: Network bridges
+  hosts: proxmox
+  roles:
+    - role: network_bridge
+      tags: [network]
+      when: network_bridge_enabled | bool
+
+# One play on purpose: both roles notify the initramfs handler in pve_common,
+# and within one play it runs once.
+- name: GPU passthrough and AMD vendor-reset
+  hosts: proxmox
+  roles:
+    - role: pve_common
+      tags: [always]
+    - role: gpu_passthrough
+      tags: [gpu]
+      when: gpu_passthrough_enabled | bool
+    - role: vendor_reset
+      tags: [gpu]
+      when: vendor_reset_enabled | bool
+
+- name: Laptop
+  hosts: proxmox
+  roles:
+    - role: laptop_lid
+      tags: [laptop]
+      when: laptop_lid_enabled | bool
+
+# Only when something left /run/reboot-required behind: GRUB, kernel modules
+# or the initramfs (pve_common's handlers), or a new kernel from dist-upgrade.
+- name: Reboot when one is pending
+  hosts: proxmox
+  gather_facts: false
+  tags: [always]
+  tasks:
+    - name: Is a reboot pending
+      ansible.builtin.stat:
+        path: /run/reboot-required
+      register: reboot_marker
+
+    - name: Schedule the reboot
+      ansible.builtin.command: "shutdown -r +{{ pve_reboot_delay_minutes | default(1) }} 'proxmox-homelab: rebooting after ansible converge'"
+      changed_when: true
+      when:
+        - reboot_marker.stat.exists
+        - pve_reboot_after_converge | default(true) | bool
+
+    - name: Report
+      ansible.builtin.debug:
+        msg: >-
+          {{ 'No reboot needed.' if not reboot_marker.stat.exists
+             else ('Rebooting in ' ~ (pve_reboot_delay_minutes | default(1)) ~ ' minute(s); cancel with "shutdown -c" on the host.')
+                  if (pve_reboot_after_converge | default(true) | bool)
+             else 'A reboot is pending and was skipped (pve_reboot_after_converge=false). Reboot the host when convenient.' }}

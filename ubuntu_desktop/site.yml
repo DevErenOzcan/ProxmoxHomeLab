@@ -1,0 +1,27 @@
+---
+# The desktop's desired state. From this directory, on the desktop, with the
+# venv active:
+#
+#   ansible-playbook site.yml --check --diff     what would change
+#   ansible-playbook site.yml                    apply it
+#
+# One part at a time with --tags:
+#   base      SSH keys, APT repositories, packages, snaps, timezone, PRIME
+#   network   the static address and the route into the firewalled segments
+#             (takes effect at the next boot)
+#   gnome     GNOME settings as dconf system defaults
+#   data      the persistent data disk, and /home on it
+#
+# Settings: host_vars/desktop.yml
+- name: Ubuntu desktop
+  hosts: ubuntu_desktop
+  become: true
+  roles:
+    - role: desktop_base
+      tags: [base]
+    - role: desktop_network
+      tags: [network]
+    - role: desktop_gnome
+      tags: [gnome]
+    - role: data_volume
+      tags: [data]

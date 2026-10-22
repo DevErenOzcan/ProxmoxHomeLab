@@ -1,0 +1,8 @@
+# The controller's Python environment: the repo's .venv on the desktop.
+#   python3 -m venv .venv
+#   .venv/bin/pip install -r requirements.txt
+#
+# Pinned on purpose: ansible-core 2.19 replaced the template engine, so an
+# unpinned upgrade can change how conditionals and asserts evaluate. Upgrade
+# deliberately, then run each playbook with --check --diff.
+ansible-core==2.21.4

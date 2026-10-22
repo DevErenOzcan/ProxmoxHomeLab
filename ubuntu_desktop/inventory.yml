@@ -1,0 +1,11 @@
+---
+# The desktop is the controller itself, so its playbook runs locally - no
+# SSH - with the system's python3 (it has python3-apt; the venv's does not).
+# Its settings are in host_vars/desktop.yml.
+all:
+  children:
+    ubuntu_desktop:
+      hosts:
+        desktop:
+          ansible_connection: local
+          ansible_python_interpreter: /usr/bin/python3

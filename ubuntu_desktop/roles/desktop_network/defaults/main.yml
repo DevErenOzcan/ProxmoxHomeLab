@@ -1,0 +1,4 @@
+---
+# Values live in host_vars/desktop.yml. Empty: the role writes nothing and
+# the image's DHCP profile stays in charge.
+desktop_network: {}

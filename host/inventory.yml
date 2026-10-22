@@ -1,0 +1,12 @@
+---
+# The Proxmox host. Its settings are in host_vars/pve1.yml.
+all:
+  children:
+    proxmox:
+      hosts:
+        pve1:
+          ansible_host: 192.168.1.200
+          ansible_user: root
+          ansible_python_interpreter: /usr/bin/python3
+          # A reinstalled host has a new host key: ssh-keygen -R 192.168.1.200
+          ansible_ssh_common_args: "-o StrictHostKeyChecking=accept-new"
